@@ -106,8 +106,11 @@ If writing the date inside a file fails, the Windows dates are still set and
 the error is shown in the window and recorded in the log. One bad file doesn't
 stop the rest.
 
-The app saves a CSV log of every file next to the `.exe` (or next to `app.py`
-when run from source) as `FixPhotoDates log <date time>.csv`.
+A CSV log of every file is **optional and off by default**, so logs don't pile
+up on the user's PC. It's saved only when the "Also save a list of the changes"
+tick box is ticked. It goes in a `FixPhotoDates logs` folder next to the `.exe`
+(or next to `app.py` when run from source), named
+`FixPhotoDates log <date time>.csv`. The command-line tool never writes a log.
 
 ## Self-update
 
@@ -213,8 +216,8 @@ overwriting correct dates that were recorded in another time zone.
 
 ## Known limitations
 
-- **No undo.** The CSV log records the old and new dates, but nothing reads it
-  back.
+- **No undo.** The optional CSV log records the old and new dates, but nothing
+  reads it back.
 - **The exe is unsigned,** so the first run shows SmartScreen's "Windows
   protected your PC". A code-signing certificate would remove this.
 - **WhatsApp times are made up** (midday plus order number) unless the real

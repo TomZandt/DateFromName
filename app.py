@@ -18,10 +18,12 @@ DATE_FORMAT = "%d/%m/%Y  %H:%M"
 
 
 def log_folder():
-    """Keep the log next to the program, not among the photos."""
+    """Keep logs in their own folder next to the program, not among the photos."""
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "FixPhotoDates logs")
 
 
 class App:
@@ -39,6 +41,7 @@ class App:
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
         style.configure("Update.TFrame", background="#fff4c2")
         style.configure("Update.TLabel", background="#fff4c2", font=FONT)
+        style.configure("TCheckbutton", font=FONT)
 
         self.update_bar = ttk.Frame(root, style="Update.TFrame", padding=(20, 10))
         self.update_text = ttk.Label(self.update_bar, style="Update.TLabel")
@@ -66,6 +69,10 @@ class App:
         self.fix_button = ttk.Button(buttons, text="2.  Fix dates", style="Big.TButton",
                                      command=self.fix, state="disabled")
         self.fix_button.pack(side="left", padx=(16, 0))
+
+        self.save_log = tk.BooleanVar(value=False)
+        ttk.Checkbutton(frame, variable=self.save_log,
+                        text="Also save a list of the changes (a log file)").pack(anchor="w", pady=(12, 0))
 
         self.message = ttk.Label(frame, font=FONT, wraplength=900, justify="left",
                                  text="Start by clicking “Choose photo folder”.")
@@ -201,11 +208,14 @@ class App:
         for i, plan in enumerate(self.changes, 1):
             core.apply_plan(plan)
             self.show_progress(i, len(self.changes))
-        log_path = os.path.join(log_folder(), f"FixPhotoDates log {datetime.now():%Y-%m-%d %H-%M-%S}.csv")
-        try:
-            core.write_log(self.plans, log_path)
-        except OSError:
-            log_path = None
+        log_path = None
+        if self.save_log.get():
+            log_path = os.path.join(log_folder(), f"FixPhotoDates log {datetime.now():%Y-%m-%d %H-%M-%S}.csv")
+            try:
+                os.makedirs(log_folder(), exist_ok=True)
+                core.write_log(self.plans, log_path)
+            except OSError:
+                log_path = None
         self.root.after(0, lambda: self._fix_done(log_path))
 
     def _fix_done(self, log_path):

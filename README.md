@@ -40,7 +40,9 @@ For each file:
   time is kept instead of midday.
 - **No date in the name**: skipped.
 
-A CSV log of every change is saved next to the exe.
+To keep a record, tick **Also save a list of the changes** before clicking
+**Fix dates**. A CSV log is then saved in a `FixPhotoDates logs` folder next
+to the exe. This is off by default so logs don't build up.
 
 ## Development
 
