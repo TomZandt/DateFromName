@@ -1,2 +1,2 @@
 pillow
-pyinstaller
+pyinstaller==6.22.3

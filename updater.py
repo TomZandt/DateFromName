@@ -81,4 +81,7 @@ def install_update(url, progress=None):
     except OSError:
         os.replace(_old_exe_path(), exe)  # put the working version back
         raise
-    subprocess.Popen([exe], close_fds=True)
+    # Without this the new exe reuses our unpacked temp folder, so we can't
+    # delete it on exit and Windows shows "Failed to remove temporary directory".
+    env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")
+    subprocess.Popen([exe], env=env, close_fds=True)
