@@ -4,7 +4,7 @@ What changed in each version of Fix Photo Dates. See the
 [README](README.md) for how the app works now. Versions follow
 [Semantic Versioning](CONTRIBUTING.md#versions-semantic-versioning).
 
-## Unreleased
+## v1.3.0 (31 October 2026)
 
 - **The window is split into three tabs**, one per job: **Fix dates**,
   **Organise** and **Renumber**. Each reads top to bottom: choose a folder,
