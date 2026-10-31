@@ -1,0 +1,37 @@
+# Push a tag like v1.2.0 to build FixPhotoDates.exe and publish it as a release.
+# Copies of the app already installed see the new release and offer to update.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Stamp version
+        run: python -c "open('_version.py', 'w').write('VERSION = %r\n' % '${{ github.ref_name }}')"
+
+      - name: Build exe
+        run: pyinstaller --onefile --windowed --name FixPhotoDates app.py
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/FixPhotoDates.exe --title "Fix Photo Dates ${{ github.ref_name }}" --generate-notes
