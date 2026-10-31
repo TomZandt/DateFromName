@@ -30,9 +30,11 @@ class App:
     def __init__(self, root):
         self.root = root
         self.folder = None
+        self.plans = None
+        self.skipped = []
         self.changes = []
         root.title(f"{TITLE}  ({VERSION})")
-        root.geometry("980x640")
+        root.geometry("1040x720")
         root.minsize(700, 480)
 
         style = ttk.Style()
@@ -70,9 +72,22 @@ class App:
                                      command=self.fix, state="disabled")
         self.fix_button.pack(side="left", padx=(16, 0))
 
+        options = ttk.Frame(frame)
+        options.pack(anchor="w", pady=(12, 0))
+        self.add_prefix = tk.BooleanVar(value=False)
+        self.month_folders = tk.BooleanVar(value=False)
         self.save_log = tk.BooleanVar(value=False)
-        ttk.Checkbutton(frame, variable=self.save_log,
-                        text="Also save a list of the changes (a log file)").pack(anchor="w", pady=(12, 0))
+        self.option_boxes = [
+            ttk.Checkbutton(options, variable=self.add_prefix, command=self.show_plan,
+                            text="Add the date to the start of each file name   "
+                                 "(e.g. 2026_08_22_0000_IMG-20260822-WA0002.jpeg)"),
+            ttk.Checkbutton(options, variable=self.month_folders, command=self.show_plan,
+                            text="Put the photos into a folder for each month   (e.g. 2026_08)"),
+            ttk.Checkbutton(options, variable=self.save_log,
+                            text="Save a list of the changes (a log file)"),
+        ]
+        for box in self.option_boxes:
+            box.pack(anchor="w", pady=2)
 
         self.message = ttk.Label(frame, font=FONT, wraplength=900, justify="left",
                                  text="Start by clicking “Choose photo folder”.")
@@ -82,10 +97,11 @@ class App:
 
         table = ttk.Frame(frame)
         table.pack(fill="both", expand=True)
-        columns = ("name", "now", "new", "why")
+        columns = ("name", "now", "new", "new_name", "why")
         self.tree = ttk.Treeview(table, columns=columns, show="headings")
-        for col, heading, width in zip(columns, ("Photo or video", "Date inside file now", "New date", "What will happen"),
-                                       (330, 170, 150, 260)):
+        for col, heading, width in zip(columns, ("Photo or video", "Date inside file now", "New date",
+                                                 "New name", "What will happen"),
+                                       (250, 140, 130, 300, 200)):
             self.tree.heading(col, text=heading)
             self.tree.column(col, width=width, anchor="w")
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
@@ -139,6 +155,8 @@ class App:
     def busy(self, is_busy):
         state = "disabled" if is_busy else "normal"
         self.choose_button.configure(state=state)
+        for box in self.option_boxes:
+            box.configure(state=state)
         self.fix_button.configure(state="disabled" if is_busy or not self.changes else "normal")
         if is_busy:
             self.progress.configure(value=0)
@@ -172,43 +190,64 @@ class App:
         self.say(f"Sorry, something went wrong reading that folder:\n{exc}")
 
     def _scan_done(self, plans, skipped):
-        self.plans = plans
+        self.plans, self.skipped = plans, skipped
+        self.busy(False)
+        self.show_plan()
+
+    def show_plan(self):
+        """Show what will happen. Runs again whenever an option is ticked."""
+        if self.plans is None:
+            return
+        plans, skipped = self.plans, self.skipped
+        core.plan_new_paths(plans, self.folder, self.add_prefix.get(), self.month_folders.get())
         self.changes = [p for p in plans if p.needs_change]
-        correct = len(plans) - len(self.changes)
+        self.tree.delete(*self.tree.get_children())
         for p in self.changes:
             now = p.embedded.strftime(DATE_FORMAT) if p.embedded else "(none)"
+            new_name = os.path.relpath(p.new_path, self.folder) if p.new_path else ""
+            why = p.status if p.fixes_date else "Date already right"
             self.tree.insert("", "end", values=(os.path.relpath(p.path, self.folder), now,
-                                                p.target.strftime(DATE_FORMAT), p.status))
-        self.busy(False)
+                                                p.target.strftime(DATE_FORMAT), new_name, why))
+        self.fix_button.configure(state="normal" if self.changes else "disabled")
 
+        date_fixes = sum(1 for p in plans if p.fixes_date)
+        moves = sum(1 for p in plans if p.new_path)
         total = len(plans) + len(skipped)
         if total == 0:
             self.say("There are no photos or videos in that folder. Try choosing a different one.")
-        elif not self.changes:
-            self.say(f"Good news: all {len(plans)} photos and videos already have the right date. "
-                     "Nothing needs fixing.")
+            return
+        lines = [f"Found {total} photos and videos."]
+        if len(plans) > date_fixes:
+            lines.append(f"✔  {len(plans) - date_fixes} already have the right date.")
+        if date_fixes:
+            lines.append(f"✎  {date_fixes} will have their date fixed.")
+        if moves:
+            if self.add_prefix.get() and self.month_folders.get():
+                what = "renamed and put into month folders"
+            elif self.month_folders.get():
+                what = "put into month folders"
+            else:
+                what = "renamed"
+            lines.append(f"↪  {moves} will be {what}.")
+        if skipped:
+            lines.append(f"–  {len(skipped)} have no date in their name or inside the file "
+                         "and will be left alone.")
+        if self.changes:
+            lines.append("Check the list below, then click “Fix”.")
+            self.fix_button.configure(text=f"2.  Fix {len(self.changes)} files")
         else:
-            lines = [f"Found {total} photos and videos.",
-                     f"✔  {correct} already have the right date.",
-                     f"✎  {len(self.changes)} will be fixed (listed below)."]
-            if skipped:
-                lines.append(f"–  {len(skipped)} have no date in their name or inside the file "
-                             "and will be left alone.")
-            lines.append("Click “Fix dates” to fix them.")
-            self.say("\n".join(lines))
-            self.fix_button.configure(text=f"2.  Fix {len(self.changes)} dates")
+            lines.append("Nothing needs changing.")
+        self.say("\n".join(lines))
 
     # --- step 2: fix -------------------------------------------------------------
 
     def fix(self):
         self.busy(True)
-        self.say("Fixing dates … please wait.")
+        self.say("Fixing … please wait.")
         threading.Thread(target=self._fix, daemon=True).start()
 
     def _fix(self):
-        for i, plan in enumerate(self.changes, 1):
-            core.apply_plan(plan)
-            self.show_progress(i, len(self.changes))
+        core.apply_plans(self.plans, self.folder, progress=self.show_progress)
         log_path = None
         if self.save_log.get():
             log_path = os.path.join(log_folder(), f"FixPhotoDates log {datetime.now():%Y-%m-%d %H-%M-%S}.csv")
@@ -223,9 +262,10 @@ class App:
         failed = [p for p in self.changes if p.error]
         fixed = len(self.changes) - len(failed)
         self.changes = []
+        self.plans = None  # the list is out of date now; choose the folder again to recheck
         self.busy(False)
         self.fix_button.configure(text="2.  Fix dates")
-        lines = [f"Done!  {fixed} photos and videos now have the right date."]
+        lines = [f"Done!  {fixed} photos and videos have been updated."]
         if failed:
             lines.append(f"{len(failed)} had a problem (see the list below).")
         lines.append("You can close this window, or choose another folder.")
@@ -234,7 +274,7 @@ class App:
         self.say("\n".join(lines))
         self.tree.delete(*self.tree.get_children())
         for p in failed:
-            self.tree.insert("", "end", values=(os.path.relpath(p.path, self.folder), "", "", p.error))
+            self.tree.insert("", "end", values=(os.path.relpath(p.path, self.folder), "", "", "", p.error))
 
 
 def main():

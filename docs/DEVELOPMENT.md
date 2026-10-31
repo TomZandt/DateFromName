@@ -36,7 +36,7 @@ of the design:
 ## How a file is processed
 
 `plan_folder()` makes two passes over the folder. Nothing is written until
-`apply_plan()` is called.
+`apply_plans()` is called.
 
 ### 1. Read the name and the date inside the file
 
@@ -127,6 +127,43 @@ inside the file was already right, so sorting by date works everywhere.
 If writing the date inside a file fails, the Windows dates are still set and
 the error is shown in the window and recorded in the log. One bad file doesn't
 stop the rest.
+
+### 4. Optional: rename and sort into month folders
+
+Both are off by default and work independently. `plan_new_paths()` sets
+`plan.new_path` and runs again every time a tick box changes, so the preview's
+"New name" column is always up to date. It uses `plan.target` (the final date),
+so it works whether or not the date needed fixing.
+
+- **Prefix** (`add_prefix`): `YYYY_MM_DD_####_<original name>`. Files are
+  grouped by destination folder and month and sorted by date, then name.
+  `####` counts from `0000`. Any prefix matching `PREFIX`
+  (`^\d{4}_\d{2}_\d{2}_\d{4}_`) is stripped first. That makes running twice a
+  no-op and lets new photos renumber the month. `parse_name()` also strips it,
+  so prefixed WhatsApp and Pixel names still parse. Turning the option off
+  doesn't remove existing prefixes.
+- **Month folders** (`month_folders`): every dated file goes into
+  `<chosen folder>/YYYY_MM/`, wherever it was. Numbering is per destination
+  folder, so with both options it's "oldest of the month in that folder is
+  0000".
+- **Name clashes** within a destination get ` (2)`, ` (3)` and so on. When
+  only moving, files already in the destination keep their name and the
+  newcomer gets the suffix. A clash with a file that isn't being processed
+  (e.g. an undated `photo.jpg` already there) is caught at apply time. That
+  file is put back where it was and the clash is reported.
+
+`apply_plans()` fixes the dates first, then does all the renames in two steps:
+first to `~renaming<n>~<name>` in the original folder, then to the final path.
+Renumbering can make one file's new name another file's current name, like
+two parked cars swapping spaces, so every file moves aside before any takes
+its new spot. If the final step fails, the file is renamed back. Afterwards,
+`_remove_emptied_folders()` uses `os.rmdir` (which only removes empty folders)
+on each folder a file left, and its parents up to the chosen folder.
+
+If the app is killed between the two steps, files can be left with a
+`~renaming` name. Running the app again won't repair those.
+
+### 5. Log
 
 A CSV log of every file is **optional and off by default**, so logs don't pile
 up on the user's PC. It's saved only when the "Also save a list of the changes"

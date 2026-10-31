@@ -79,6 +79,9 @@ PATTERNS = [(re.compile(pattern, re.I), kind) for pattern, kind in [
     (r"(?<!\d)(?P<y>\d{4})[-_.]?(?P<m>\d{2})[-_.]?(?P<d>\d{2})(?!\d)", DATE_ONLY),
 ]]
 
+# Optional prefix added by plan_renames: 2026_08_22_0000_IMG-20260822-WA0002.jpeg
+PREFIX = re.compile(r"^\d{4}_\d{2}_\d{2}_\d{4}_")
+
 
 @dataclass
 class NameDate:
@@ -97,15 +100,20 @@ class Plan:
     set_file_times: bool = False
     status: str = ""
     error: str = ""
+    new_path: str | None = None  # set by plan_new_paths when renaming or moving
+
+    @property
+    def fixes_date(self):
+        return self.write_embedded or self.set_file_times
 
     @property
     def needs_change(self):
-        return self.write_embedded or self.set_file_times
+        return self.fixes_date or bool(self.new_path)
 
 
 def parse_name(filename):
     """Return the NameDate found in a file name, or None."""
-    stem = os.path.splitext(filename)[0]
+    stem = PREFIX.sub("", os.path.splitext(filename)[0])
     for pattern, kind in PATTERNS:
         for match in pattern.finditer(stem):
             when = _match_to_datetime(match, kind)
@@ -438,8 +446,64 @@ def _decide(plan, offsets):
         plan.status += ", file dates updated"
 
 
+def _unique_name(name, used):
+    stem, ext = os.path.splitext(name)
+    n = 2
+    while name.lower() in used:
+        name = f"{stem} ({n}){ext}"
+        n += 1
+    used.add(name.lower())
+    return name
+
+
+def plan_new_paths(plans, root, add_prefix=False, month_folders=False):
+    """Work out where each file should end up for the two optional tidy-ups.
+
+    add_prefix: the name becomes "YYYY_MM_DD_####_<original name>", where
+    #### counts from 0000 for the oldest file of each month in each folder.
+    A prefix we added before is replaced, so running again with nothing new
+    changes nothing.
+
+    month_folders: files move into "<root>/YYYY_MM/". Files with the same
+    name from different folders get " (2)" added rather than overwriting.
+    """
+    groups = {}
+    for plan in plans:
+        plan.new_path = None
+        if plan.target and (add_prefix or month_folders):
+            if month_folders:
+                folder = os.path.join(root, f"{plan.target:%Y_%m}")
+            else:
+                folder = os.path.dirname(plan.path)
+            key = (os.path.normcase(folder), plan.target.year, plan.target.month)
+            groups.setdefault(key, (folder, []))[1].append(plan)
+
+    for folder, group in groups.values():
+        def base_name(p):
+            name = os.path.basename(p.path)
+            return PREFIX.sub("", name) if add_prefix else name
+        def already_here(p):
+            return os.path.normcase(os.path.dirname(p.path)) == os.path.normcase(folder)
+        if add_prefix:
+            group.sort(key=lambda p: (p.target, base_name(p).lower()))
+        else:
+            # Without numbers, files already in the folder keep their name and
+            # newcomers with the same name get the " (2)".
+            group.sort(key=lambda p: (not already_here(p), p.target, base_name(p).lower()))
+        used = set()
+        for number, plan in enumerate(group):
+            name = base_name(plan)
+            if add_prefix:
+                name = f"{plan.target:%Y_%m_%d}_{number:04d}_{name}"
+            path = os.path.join(folder, _unique_name(name, used))
+            if os.path.normcase(path) != os.path.normcase(plan.path):
+                plan.new_path = path
+
+
 def apply_plan(plan):
-    """Make the changes for one file. Records any error on the plan."""
+    """Fix the dates of one file. Records any error on the plan."""
+    if not plan.fixes_date:
+        return
     ext = os.path.splitext(plan.path)[1].lower()
     try:
         if plan.write_embedded:
@@ -455,10 +519,69 @@ def apply_plan(plan):
         plan.error = f"Could not change file dates ({exc})"
 
 
+def _add_error(plan, message):
+    plan.error = f"{plan.error}; {message}" if plan.error else message
+
+
+def apply_plans(plans, root=None, progress=None):
+    """Fix dates, then rename and move, for every plan that needs a change.
+
+    When files are renumbered, one file's new name can be another's current
+    name (0001 becoming 0000 while 0000 becomes 0001). Like swapping two
+    parked cars, one has to be moved out of the way first, so every file being
+    renamed gets a temporary name before its final one.
+    """
+    changes = [p for p in plans if p.needs_change]
+    for i, p in enumerate(changes, 1):
+        apply_plan(p)
+        if progress:
+            progress(i, len(changes))
+
+    moving = []  # (plan, original path, temporary path)
+    for n, p in enumerate(p for p in changes if p.new_path):
+        temp = os.path.join(os.path.dirname(p.path), f"~renaming{n}~{os.path.basename(p.new_path)}")
+        try:
+            os.rename(p.path, temp)
+            moving.append((p, p.path, temp))
+        except OSError as exc:
+            _add_error(p, f"Could not rename ({exc})")
+    for p, original, temp in moving:
+        try:
+            if os.path.exists(p.new_path):
+                raise FileExistsError(f"{os.path.basename(p.new_path)} already exists")
+            os.makedirs(os.path.dirname(p.new_path), exist_ok=True)
+            os.rename(temp, p.new_path)
+            p.path = p.new_path
+        except OSError as exc:
+            _add_error(p, f"Could not rename or move ({exc})")
+            try:
+                os.rename(temp, original)
+            except OSError:
+                p.path = temp
+
+    if root:
+        _remove_emptied_folders({os.path.dirname(original) for _, original, _ in moving}, root)
+    return changes
+
+
+def _remove_emptied_folders(folders, root):
+    """Remove folders (and their parents, up to root) that moving left empty."""
+    root = os.path.normcase(os.path.abspath(root))
+    for folder in sorted(folders, key=len, reverse=True):
+        folder = os.path.abspath(folder)
+        while os.path.normcase(folder) != root and os.path.normcase(folder).startswith(root + os.sep):
+            try:
+                os.rmdir(folder)  # only succeeds if the folder is empty
+            except OSError:
+                break
+            folder = os.path.dirname(folder)
+
+
 def write_log(plans, log_path):
     with open(log_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
-        writer.writerow(["File", "Date in name", "Date inside file before", "New date", "Result", "Error"])
+        writer.writerow(["File", "Date in name", "Date inside file before", "New date", "Result",
+                         "Renamed or moved to", "Error"])
         for p in plans:
             writer.writerow([
                 p.path,
@@ -466,6 +589,7 @@ def write_log(plans, log_path):
                 p.embedded.strftime("%d/%m/%Y %H:%M:%S") if p.embedded else "",
                 p.target.strftime("%d/%m/%Y %H:%M:%S") if p.target else "",
                 p.status,
+                p.new_path or "",
                 p.error,
             ])
 
@@ -475,18 +599,23 @@ def main(argv=None):
     parser.add_argument("folder")
     parser.add_argument("--apply", action="store_true", help="make the changes (default is preview only)")
     parser.add_argument("--no-recurse", action="store_true", help="ignore subfolders")
+    parser.add_argument("--rename", action="store_true",
+                        help="add YYYY_MM_DD_####_ to the start of each file name")
+    parser.add_argument("--month-folders", action="store_true",
+                        help="move files into YYYY_MM folders inside the folder")
     args = parser.parse_args(argv)
 
     plans, skipped = plan_folder(args.folder, recurse=not args.no_recurse)
+    plan_new_paths(plans, args.folder, args.rename, args.month_folders)
     changes = [p for p in plans if p.needs_change]
     for p in changes:
-        print(f"{os.path.relpath(p.path, args.folder):45} -> {p.target:%d/%m/%Y %H:%M:%S}  {p.status}")
-    print(f"\n{len(plans) - len(changes)} already correct, {len(changes)} to fix, "
-          f"{len(skipped)} with no date in the name.")
+        rename = f"  -> {os.path.relpath(p.new_path, args.folder)}" if p.new_path else ""
+        print(f"{os.path.relpath(p.path, args.folder):45} {p.target:%d/%m/%Y %H:%M:%S}  {p.status}{rename}")
+    print(f"\n{len(plans) - len(changes)} need no change, {len(changes)} to change, "
+          f"{len(skipped)} with no date found.")
 
     if args.apply:
-        for p in changes:
-            apply_plan(p)
+        for p in apply_plans(plans, args.folder):
             if p.error:
                 print(f"{p.path}: {p.error}", file=sys.stderr)
         print("Done.")

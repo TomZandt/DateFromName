@@ -51,9 +51,22 @@ For each file:
   the file is used to fix the Windows dates. If there's no date inside either,
   the file is skipped.
 
-To keep a record, tick **Also save a list of the changes** before clicking
-**Fix dates**. A CSV log is then saved in a `FixPhotoDates logs` folder next
-to the exe. This is off by default so logs don't build up.
+## Options
+
+All three tick boxes are off by default. Ticking one updates the list straight
+away, so you can see the result before clicking **Fix**.
+
+- **Add the date to the start of each file name.** For example,
+  `IMG-20260822-WA0002.jpeg` becomes `2026_08_22_0000_IMG-20260822-WA0002.jpeg`.
+  The four-digit number counts from `0000` for the oldest photo of each month,
+  so sorting by name also sorts by date. Running it again only renumbers if
+  photos have been added.
+- **Put the photos into a folder for each month.** Every dated photo in the
+  chosen folder (including subfolders) moves into `<chosen folder>\2026_08\`
+  and so on. If two files have the same name, the second gets ` (2)` added.
+  Folders left empty are removed. Photos with no date stay where they are.
+- **Save a list of the changes.** A CSV log is saved in a `FixPhotoDates logs`
+  folder next to the exe.
 
 ## Development
 
@@ -65,6 +78,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 python app.py                                  # the window
 python datefromname.py "D:\Photos"             # command line preview
 python datefromname.py "D:\Photos" --apply     # command line fix
+python datefromname.py "D:\Photos" --rename --month-folders --apply
 python -m unittest discover -s tests
 ```
 
