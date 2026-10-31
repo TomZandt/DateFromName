@@ -88,6 +88,20 @@ git config core.hooksPath .githooks
 
 Merge commits and `fixup!`/`squash!` commits are allowed through.
 
+## Branches and pull requests
+
+Small fixes can go straight to `main`. For anything bigger:
+
+1. Branch from `main`, named after the commit type, e.g.
+   `feat/heic-writing` or `fix/organise-clash`.
+2. Commit in Conventional Commits style. Add a line under `## Unreleased` in
+   [CHANGELOG.md](CHANGELOG.md) for anything users will notice.
+3. Open a pull request. Its title should be a Conventional Commit too, because
+   it becomes the commit message if you squash-merge. The Test workflow runs
+   on it.
+4. Merge when the tests pass, then follow
+   [After merging a branch](docs/DEVELOPMENT.md#after-merging-a-branch).
+
 ## Versions: Semantic Versioning
 
 Releases are numbered with [Semantic Versioning](https://semver.org/):

@@ -23,7 +23,8 @@ What changed in each version of Fix Photo Dates. See the
   (e.g. `2026_09_02_0001_DSC_1234.JPG`) were skipped. They now use that date.
 - Added the MIT licence.
 - For developers: a much bigger test suite (window, updater, error handling),
-  tests on every push, and commit message and versioning guidelines.
+  tests on every push, commit message and versioning guidelines, and
+  checklists for before and after a release and after merging.
 
 ## v1.2.0 (31 October 2026)
 

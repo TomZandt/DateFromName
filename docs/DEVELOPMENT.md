@@ -263,11 +263,19 @@ Version numbers follow Semantic Versioning. How to pick the next number, and
 how it follows from the commit types, is in
 [CONTRIBUTING.md](../CONTRIBUTING.md#versions-semantic-versioning).
 
+### Before a release
+
 1. Work out the next version from the commits since the last tag:
    `git log --oneline $(git describe --tags --abbrev=0)..HEAD`
-2. In [CHANGELOG.md](../CHANGELOG.md), rename "Unreleased" to the new
+2. Make sure `main` is clean (`git status`) and the tests pass.
+3. Build the exe locally (see [Working locally](#working-locally)), open it
+   and click through each tab on a copy of some test photos. The tests don't
+   cover the built exe.
+4. Check the docs match what's changed: the README for anything users see,
+   this guide for how it works, CONTRIBUTING for process.
+5. In [CHANGELOG.md](../CHANGELOG.md), rename "Unreleased" to the new
    version and date. Commit with `docs(release): vX.Y.Z`.
-3. Tag and push:
+6. Tag and push:
 
 ```
 git tag vX.Y.Z
@@ -287,6 +295,49 @@ won't offer it (see [Self-update](#self-update)).
 
 Give users the download link in the README. It always points at the newest
 release.
+
+### After a release
+
+1. **Check it published:** `gh run list --workflow Release --limit 1` shows
+   success, and `gh release view vX.Y.Z` lists `FixPhotoDates.exe`.
+2. **Check what users get:** download from the README link and open it. The
+   title should say `Fix Photo Dates (vX.Y.Z)`.
+3. **Check updating:** open the previous version's exe (from its release
+   page). The yellow bar should offer the new version, and **Update now**
+   should restart it as the new version with no warning box.
+4. **Tidy up locally:** delete `build/`, `dist/` and `*.spec` if you built
+   locally (they're git-ignored, but old builds are easy to mix up), and any
+   copies of test photos.
+5. **Changelog:** the next change that users will notice starts a new
+   `## Unreleased` section at the top of CHANGELOG.md.
+
+If something's wrong with a release, don't move or delete the tag. Fix it and
+release a new PATCH version (see
+[CONTRIBUTING.md](../CONTRIBUTING.md#versions-semantic-versioning)).
+
+### After merging a branch
+
+Branches and pull requests are described in
+[CONTRIBUTING.md](../CONTRIBUTING.md#branches-and-pull-requests). After one is
+merged:
+
+1. **Delete the branch on GitHub** with the button on the merged pull request.
+   Or turn on **Settings → General → Automatically delete head branches** and
+   GitHub does it for you.
+2. **Tidy up locally:**
+
+   ```
+   git switch main
+   git pull
+   git branch -d <branch>
+   git fetch --prune
+   ```
+
+3. **Check the Test workflow** passed on `main` after the merge
+   (`gh run list --workflow Test --limit 1`).
+4. **Decide whether it needs a release.** Use the rules in
+   [CONTRIBUTING.md](../CONTRIBUTING.md#picking-the-next-version):
+   docs/test/CI-only changes don't.
 
 ## Working locally
 
