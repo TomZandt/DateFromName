@@ -10,6 +10,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, ttk
+import tkinter.font  # noqa: F401  (for ColourTable's text measuring)
 
 import datefromname as core
 import updater
@@ -19,6 +20,69 @@ TITLE = "Fix Photo Dates"
 FONT = ("Segoe UI", 12)
 BIG_FONT = ("Segoe UI", 14, "bold")
 DATE_FORMAT = "%d/%m/%Y  %H:%M"
+TABLE_FONT = ("Segoe UI", 10)
+PREFIX_COLOUR = "#1f5fbf"  # blue: the date added to the start of the name
+FOLDER_COLOUR = "#1e8a3a"  # green: the month folder it moves into
+
+
+class ColourTable(ttk.Frame):
+    """A read-only list whose cells can mix colours, which ttk.Treeview can't.
+
+    Each cell is a string, or a list of (text, tag) pieces where tag is
+    "prefix", "folder" or None. Columns are lined up with tab stops and long
+    cells are shortened with "..." to fit.
+    """
+
+    def __init__(self, parent, columns):
+        super().__init__(parent)
+        self.widths = [width for _, width in columns]
+        stops, x = [], 0
+        for width in self.widths[:-1]:
+            x += width
+            stops.append(x)
+        common = dict(wrap="none", font=TABLE_FONT, relief="flat", padx=8, tabs=stops,
+                      cursor="arrow", highlightthickness=0)
+        self.header = tk.Text(self, height=1, background="#e8e8e8", pady=4, **common)
+        self.header.insert("end", "\t".join(heading for heading, _ in columns))
+        self.header.configure(state="disabled", font=(TABLE_FONT[0], TABLE_FONT[1], "bold"))
+        self.header.pack(fill="x")
+
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True)
+        self.text = tk.Text(body, height=6, background="white", pady=2, spacing1=3, spacing3=3, **common)
+        self.text.tag_configure("prefix", foreground=PREFIX_COLOUR, font=(TABLE_FONT[0], TABLE_FONT[1], "bold"))
+        self.text.tag_configure("folder", foreground=FOLDER_COLOUR, font=(TABLE_FONT[0], TABLE_FONT[1], "bold"))
+        scroll = ttk.Scrollbar(body, orient="vertical", command=self.text.yview)
+        self.text.configure(yscrollcommand=scroll.set, state="disabled")
+        self.text.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.measure = tk.font.Font(font=TABLE_FONT).measure
+
+    def _fit(self, pieces, width):
+        """Shorten the pieces from the end so they fit in the column."""
+        room = width - 16
+        if self.measure("".join(t for t, _ in pieces)) <= room:
+            return pieces
+        fitted, used = [], self.measure("…")
+        for text, tag in pieces:
+            for i, ch in enumerate(text):
+                used += self.measure(ch)
+                if used > room:
+                    fitted.append((text[:i] + "…", tag))
+                    return fitted
+            fitted.append((text, tag))
+        return fitted
+
+    def set_rows(self, rows):
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        for row in rows:
+            for col, (cell, width) in enumerate(zip(row, self.widths)):
+                pieces = [(cell, None)] if isinstance(cell, str) else cell
+                for text, tag in self._fit(pieces, width):
+                    self.text.insert("end", text, tag or ())
+                self.text.insert("end", "\t" if col < len(self.widths) - 1 else "\n")
+        self.text.configure(state="disabled")
 
 
 def log_folder():
@@ -58,16 +122,8 @@ class Tab:
         self.message.pack(anchor="w", pady=(14, 8))
         self.progress = ttk.Progressbar(self.frame, mode="determinate")
 
-        self.table = ttk.Frame(self.frame)
+        self.table = ColourTable(self.frame, [(heading, width) for _, heading, width in self.columns])
         self.table.pack(fill="both", expand=True)
-        self.tree = ttk.Treeview(self.table, columns=[c[0] for c in self.columns], show="headings", height=8)
-        for col, heading, width in self.columns:
-            self.tree.heading(col, text=heading)
-            self.tree.column(col, width=width, anchor="w")
-        scroll = ttk.Scrollbar(self.table, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scroll.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
 
         self.go_button = ttk.Button(self.frame, text=self.go_text, style="Big.TButton",
                                     command=self.go, state="disabled")
@@ -106,12 +162,24 @@ class Tab:
             self.progress.pack_forget()
 
     def show_rows(self, rows):
-        self.tree.delete(*self.tree.get_children())
-        for row in rows:
-            self.tree.insert("", "end", values=row)
+        self.table.set_rows(rows)
 
     def relative(self, path):
         return os.path.relpath(path, self.folder)
+
+    def coloured_new_name(self, path, show_folder, show_prefix):
+        """The new path as pieces: green month folder, blue prefix, plain name."""
+        pieces = []
+        folder = os.path.dirname(self.relative(path))
+        if folder:
+            pieces.append((folder + os.sep, "folder" if show_folder else None))
+        name = os.path.basename(path)
+        match = core.PREFIX.match(name)
+        if match and show_prefix:
+            pieces.append((match.group(0), "prefix"))
+            name = name[match.end():]
+        pieces.append((name, None))
+        return pieces
 
     def choose_folder(self):
         folder = filedialog.askdirectory(title="Choose the folder with the photos")
@@ -188,8 +256,8 @@ class FixTab(Tab):
              "The pictures themselves are not changed.")
     go_text = "2.  Fix"
     done_verb = "updated"
-    columns = (("name", "Photo or video", 230), ("now", "Date inside file now", 130),
-               ("new", "New date", 120), ("new_name", "New name", 280), ("why", "What will happen", 170))
+    columns = (("name", "Photo or video", 215), ("now", "Date inside file now", 140),
+               ("new", "New date", 140), ("new_name", "New name", 330), ("why", "What will happen", 135))
 
     def build_options(self):
         options = ttk.Frame(self.frame)
@@ -199,13 +267,26 @@ class FixTab(Tab):
         self.month_folders = tk.BooleanVar(value=False)
         boxes = [
             ttk.Checkbutton(options, variable=self.add_prefix, command=self.show_plan,
-                            text="Add the date to the start of each file name   "
-                                 "(e.g. 2026_08_22_0000_IMG-20260822-WA0002.jpeg)"),
+                            style="Prefix.TCheckbutton",
+                            text="Add the date to the start of each file name"),
             ttk.Checkbutton(options, variable=self.month_folders, command=self.show_plan,
-                            text="Put the photos into a folder for each month   (e.g. 2026_08)"),
+                            style="Folder.TCheckbutton",
+                            text="Put the photos into a folder for each month"),
         ]
-        for row, box in enumerate(boxes):
+        examples = [
+            [("e.g.  ", None), ("2026_08_22_0000_", "prefix"), ("IMG-20260822-WA0002.jpeg", None)],
+            [("e.g.  ", None), ("2026_08\\", "folder"), ("IMG-20260822-WA0002.jpeg", None)],
+        ]
+        for row, (box, example) in enumerate(zip(boxes, examples)):
             box.grid(row=row, column=1, sticky="w", pady=2)
+            text = tk.Text(options, height=1, width=48, font=FONT, relief="flat", cursor="arrow",
+                           background=ttk.Style().lookup("TFrame", "background"), highlightthickness=0)
+            text.tag_configure("prefix", foreground=PREFIX_COLOUR, font=(FONT[0], FONT[1], "bold"))
+            text.tag_configure("folder", foreground=FOLDER_COLOUR, font=(FONT[0], FONT[1], "bold"))
+            for piece, tag in example:
+                text.insert("end", piece, tag or ())
+            text.configure(state="disabled")
+            text.grid(row=row, column=2, sticky="w", padx=(16, 0))
         return boxes
 
     def scan(self):
@@ -223,7 +304,8 @@ class FixTab(Tab):
             (self.relative(p.path),
              p.embedded.strftime(DATE_FORMAT) if p.embedded else "(none)",
              p.target.strftime(DATE_FORMAT),
-             self.relative(p.new_path) if p.new_path else "",
+             self.coloured_new_name(p.new_path, self.month_folders.get(), self.add_prefix.get())
+             if p.new_path else "",
              p.status if p.fixes_date else "Date already right")
             for p in changes])
         self.set_changes(changes, f"2.  Fix {len(changes)} files")
@@ -246,7 +328,7 @@ class FixTab(Tab):
                 what = "put into month folders"
             else:
                 what = "renamed"
-            lines.append(f"↪  {moves} will be {what}.")
+            lines.append(f"→  {moves} will be {what}.")
         if skipped:
             lines.append(f"–  {len(skipped)} have no date in their name or inside the file "
                          "and will be left alone.")
@@ -274,7 +356,8 @@ class RenumberTab(Tab):
     def show_plan(self):
         plans = self.plans
         changes = [p for p in plans if p.needs_change]
-        self.show_rows([(self.relative(p.path), self.relative(p.new_path)) for p in changes])
+        self.show_rows([(self.relative(p.path), self.coloured_new_name(p.new_path, False, True))
+                        for p in changes])
         self.set_changes(changes, f"2.  Renumber {len(changes)} files")
         if not plans:
             self.say("None of the photos in this folder have numbers at the start of their name yet.\n"
@@ -285,7 +368,7 @@ class RenumberTab(Tab):
                      "with no gaps. Nothing needs changing.")
         else:
             self.say(f"Found {len(plans)} numbered photos and videos.\n"
-                     f"↪  {len(changes)} will get a new number to close the gaps. "
+                     f"→  {len(changes)} will get a new number to close the gaps. "
                      "Their order stays the same.\n"
                      "Check the list below, then click “Renumber” at the bottom.")
 
@@ -294,7 +377,7 @@ class App:
     def __init__(self, root):
         self.root = root
         root.title(f"{TITLE}  ({VERSION})")
-        root.geometry("1060x800")
+        root.geometry("1060x860")
         root.minsize(760, 560)
 
         style = ttk.Style()
@@ -305,6 +388,8 @@ class App:
         style.configure("Update.TFrame", background="#fff4c2")
         style.configure("Update.TLabel", background="#fff4c2", font=FONT)
         style.configure("TCheckbutton", font=FONT)
+        style.configure("Prefix.TCheckbutton", font=(FONT[0], FONT[1], "bold"), foreground=PREFIX_COLOUR)
+        style.configure("Folder.TCheckbutton", font=(FONT[0], FONT[1], "bold"), foreground=FOLDER_COLOUR)
 
         self.update_bar = ttk.Frame(root, style="Update.TFrame", padding=(20, 10))
         self.update_text = ttk.Label(self.update_bar, style="Update.TLabel")

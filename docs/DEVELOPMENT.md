@@ -30,7 +30,7 @@ of the design:
 | File | Purpose |
 | ---- | ------- |
 | [datefromname.py](../datefromname.py) | All the date logic: parsing names, reading and writing dates, deciding what to do. It has no GUI code and also works as a command-line tool. |
-| [app.py](../app.py) | The tkinter window, the entry point for the `.exe`. It's a thin layer over `datefromname`. `Tab` holds the shared two-step layout (choose, preview, go, done) and `FixTab` and `RenumberTab` fill in `scan()` and `show_plan()`. A third job would be another `Tab` subclass. |
+| [app.py](../app.py) | The tkinter window, the entry point for the `.exe`. It's a thin layer over `datefromname`. `Tab` holds the shared two-step layout (choose, preview, go, done) and `FixTab` and `RenumberTab` fill in `scan()` and `show_plan()`. A third job would be another `Tab` subclass. The preview list is a `ColourTable` (a read-only `tk.Text` lined up with tab stops), because `ttk.Treeview` can only colour whole rows. In the "New name" column, the month folder is green (`FOLDER_COLOUR`) and the date prefix is blue (`PREFIX_COLOUR`), matching the tick boxes. |
 | [updater.py](../updater.py) | Checks GitHub Releases and swaps in the new `.exe`. |
 | [_version.py](../_version.py) | `VERSION = "dev"` in the repo. The release workflow overwrites it with the tag. |
 | [tests/test_datefromname.py](../tests/test_datefromname.py) | Unit tests. These build real JPEG and MP4 files in a temp folder. |
