@@ -16,9 +16,12 @@ The intended user is not technical and has nothing installed. That drives most
 of the design:
 
 - **One `.exe` with everything bundled.** No Python and no installer.
-- **A simple window.** Two big buttons, plain-English messages and no settings.
-- **Nothing changes until "Fix dates" is clicked.** Choosing a folder only
-  previews the changes.
+- **A simple window.** Two tabs, **Fix dates** and **Renumber**. Each is a
+  two-step job that reads top to bottom: a short explanation, **1. Choose
+  folder**, the preview list, then **2. Fix** or **2. Renumber** under the list.
+  Messages are in plain English.
+- **Nothing changes until step 2 is clicked.** Choosing a folder and ticking
+  options only previews the changes.
 - **Updates itself.** The app offers new versions itself, so the user never
   has to visit GitHub.
 
@@ -27,7 +30,7 @@ of the design:
 | File | Purpose |
 | ---- | ------- |
 | [datefromname.py](../datefromname.py) | All the date logic: parsing names, reading and writing dates, deciding what to do. It has no GUI code and also works as a command-line tool. |
-| [app.py](../app.py) | The tkinter window, the entry point for the `.exe`. It's a thin layer over `datefromname`. |
+| [app.py](../app.py) | The tkinter window, the entry point for the `.exe`. It's a thin layer over `datefromname`. `Tab` holds the shared two-step layout (choose, preview, go, done) and `FixTab` and `RenumberTab` fill in `scan()` and `show_plan()`. A third job would be another `Tab` subclass. |
 | [updater.py](../updater.py) | Checks GitHub Releases and swaps in the new `.exe`. |
 | [_version.py](../_version.py) | `VERSION = "dev"` in the repo. The release workflow overwrites it with the tag. |
 | [tests/test_datefromname.py](../tests/test_datefromname.py) | Unit tests. These build real JPEG and MP4 files in a temp folder. |
@@ -169,9 +172,13 @@ deletes photos. `plan_renumber()` looks only at files whose name matches
 (prefix day, old number, name) and numbers them from `0000`. It reads nothing
 inside the files, so the order is exactly the existing order and it's fast. It
 returns plain `Plan`s with only `new_path` set, so `apply_plans()` does the
-renaming with the same two-step swap. In the window, `self.renumbering`
-switches the Fix button over to these plans, and the tick boxes have no effect
-until a folder is chosen with **Choose photo folder** again.
+renaming with the same two-step swap. In the window it has its own
+**Renumber** tab (`RenumberTab`).
+
+Because the prefix itself is a date, `parse_name()` falls back to it (as
+`DATE_ONLY`, with the number as `seq`) when the rest of the name has no date,
+e.g. `2026_09_02_0001_DSC_1234.JPG`. Without that, running **Fix dates** again
+would skip those files.
 
 ### 5. Log
 

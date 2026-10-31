@@ -238,6 +238,10 @@ class FolderTests(unittest.TestCase):
         self.assertEqual(core.parse_name("2026_08_22_0000_IMG-20260822-WA0004.jpeg"),
                          core.NameDate(datetime(2026, 8, 22), core.DATE_ONLY, 4))
 
+    def test_prefix_alone_gives_the_date(self):
+        self.assertEqual(core.parse_name("2026_09_02_0007_DSC_1234.JPG"),
+                         core.NameDate(datetime(2026, 9, 2), core.DATE_ONLY, 7))
+
     def test_renumbering_can_swap_names(self):
         # A new, earlier photo arrives: 0000 must become 0001 and the newcomer 0000.
         make_jpeg(self.path("IMG-20260822-WA0005.jpeg"))

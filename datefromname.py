@@ -113,13 +113,23 @@ class Plan:
 
 def parse_name(filename):
     """Return the NameDate found in a file name, or None."""
-    stem = PREFIX.sub("", os.path.splitext(filename)[0])
+    stem = os.path.splitext(filename)[0]
+    prefix = PREFIX.match(stem)
+    if prefix:
+        stem = stem[prefix.end():]  # look at the original name first; it may have a time
     for pattern, kind in PATTERNS:
         for match in pattern.finditer(stem):
             when = _match_to_datetime(match, kind)
             if when and 1990 <= when.year <= datetime.now().year + 1:
                 seq = match.groupdict().get("seq")
                 return NameDate(when, kind, int(seq) if seq else 0)
+    if prefix:
+        # e.g. 2026_09_02_0001_DSC_1234.JPG: only our prefix has the date.
+        try:
+            when = datetime(int(prefix["y"]), int(prefix["m"]), int(prefix["d"]))
+            return NameDate(when, DATE_ONLY, int(prefix["n"]))
+        except ValueError:
+            pass
     return None
 
 

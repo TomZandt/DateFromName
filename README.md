@@ -11,8 +11,9 @@ Their file names still contain the real date. This app puts that date back.
 2. Move it somewhere easy to find, such as the Desktop, and double-click it.
    - The first time, Windows may show *"Windows protected your PC"*. Click
      **More info**, then **Run anyway**. This only happens once.
-3. Click **Choose photo folder** and pick the folder with the photos.
-4. The app lists what it found. Click **Fix dates**.
+3. On the **Fix dates** tab, click **1. Choose photo folder** and pick the
+   folder with the photos.
+4. The app lists what it found. Click **2. Fix** under the list.
 
 When a new version is out, a yellow bar appears at the top of the app. Click
 **Update now** and it updates and restarts by itself.
@@ -71,8 +72,8 @@ away, so you can see the result before clicking **Fix**.
 ## Renumbering after deleting photos
 
 After deleting unwanted photos there are gaps in the numbers (`0000`, `0003`,
-`0007`…). Click **Renumber a folder**, choose the folder (subfolders are
-included), check the list and click **Renumber**. Within each month in each
+`0007`…). Open the **Renumber** tab, click **1. Choose folder** (subfolders
+are included), check the list and click **2. Renumber**. Within each month in each
 folder, the numbered photos become `0000`, `0001`, `0002`… in the same order as
 before. Nothing else changes: no dates, no moving, and files without a number
 are left alone.
