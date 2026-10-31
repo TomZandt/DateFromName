@@ -321,9 +321,8 @@ Branches and pull requests are described in
 [CONTRIBUTING.md](../CONTRIBUTING.md#branches-and-pull-requests). After one is
 merged:
 
-1. **Delete the branch on GitHub** with the button on the merged pull request.
-   Or turn on **Settings → General → Automatically delete head branches** and
-   GitHub does it for you.
+1. **The branch is deleted on GitHub automatically.** The repo has
+   **Settings → General → Automatically delete head branches** turned on.
 2. **Tidy up locally:**
 
    ```
