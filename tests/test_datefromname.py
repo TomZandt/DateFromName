@@ -1,9 +1,13 @@
+import csv
+import io
 import os
+import stat
 import struct
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta
+from unittest import mock
 
 import piexif
 from PIL import Image
@@ -28,9 +32,10 @@ def box(kind, payload):
     return struct.pack(">I4s", 8 + len(payload), kind) + payload
 
 
-def make_mp4(path, created_utc=None):
+def make_mp4(path, created_utc=None, version=0):
     seconds = int((created_utc - core.QUICKTIME_EPOCH).total_seconds()) if created_utc else 0
-    header = b"\x00\x00\x00\x00" + struct.pack(">II", seconds, seconds) + b"\x00" * 20
+    times = struct.pack(">QQ" if version == 1 else ">II", seconds, seconds)
+    header = bytes([version, 0, 0, 0]) + times + b"\x00" * 20
     moov = box(b"moov", box(b"mvhd", header) + box(b"trak", box(b"tkhd", header) +
                                                         box(b"mdia", box(b"mdhd", header))))
     with open(path, "wb") as f:
@@ -343,6 +348,88 @@ class FolderTests(unittest.TestCase):
             "2026_08/IMG_unnumbered.jpg",
         ])
         self.assertEqual([p for p in core.plan_renumber(self.dir) if p.needs_change], [])
+
+    # --- when things go wrong -------------------------------------------------------
+
+    def test_clash_with_a_file_outside_the_plan_puts_the_file_back(self):
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        plans = core.plan_organise(self.dir, folders=core.INTO)
+        os.makedirs(self.path("2026_08"))
+        make_jpeg(self.path("2026_08/IMG-20260822-WA0002.jpeg"))  # appears after the preview
+        changes = core.apply_plans(plans, self.dir)
+        self.assertIn("already exists", changes[0].error)
+        self.assertEqual(self.files(), ["2026_08/IMG-20260822-WA0002.jpeg", "IMG-20260822-WA0002.jpeg"])
+
+    def test_failed_rename_rolls_back(self):
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        plans = core.plan_organise(self.dir, core.ADD)
+        real_rename = os.rename
+
+        def rename(src, dst):  # the final rename fails; putting it back works
+            if "~renaming" in src and "~renaming" not in dst and "2026_08_22_0000" in dst:
+                raise PermissionError("file in use")
+            return real_rename(src, dst)
+
+        with mock.patch("os.rename", side_effect=rename):
+            changes = core.apply_plans(plans, self.dir)
+        self.assertIn("file in use", changes[0].error)
+        self.assertEqual(self.files(), ["IMG-20260822-WA0002.jpeg"])
+
+    def test_damaged_files_do_not_stop_the_rest(self):
+        for name in ("IMG-20260822-WA0001.jpg", "VID-20260822-WA0002.mp4"):
+            with open(self.path(name), "wb") as f:
+                f.write(b"not really a photo")
+        make_jpeg(self.path("IMG-20260822-WA0003.jpeg"))
+        plans, _ = core.plan_folder(self.dir)
+        changes = {os.path.basename(p.path): p for p in core.apply_plans(plans)}
+        self.assertIn("Could not write date inside file", changes["IMG-20260822-WA0001.jpg"].error)
+        self.assertIn("no movie header", changes["VID-20260822-WA0002.mp4"].error)
+        self.assertEqual(changes["IMG-20260822-WA0003.jpeg"].error, "")
+        self.assertIsNotNone(core.read_jpeg_date(self.path("IMG-20260822-WA0003.jpeg")))
+        # The Windows dates are still fixed on the damaged ones.
+        self.assertEqual(self.modified("IMG-20260822-WA0001.jpg").date(), datetime(2026, 8, 22).date())
+
+    def test_read_only_file_reports_a_problem(self):
+        make_jpeg(self.path("IMG-20260822-WA0001.jpeg"))
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        os.chmod(self.path("IMG-20260822-WA0001.jpeg"), stat.S_IREAD)  # the temp folder cleans this up
+        plans, _ = core.plan_folder(self.dir)
+        changes = {os.path.basename(p.path): p for p in core.apply_plans(plans)}
+        self.assertNotEqual(changes["IMG-20260822-WA0001.jpeg"].error, "")
+        self.assertEqual(changes["IMG-20260822-WA0002.jpeg"].error, "")
+
+    # --- smaller pieces --------------------------------------------------------------
+
+    def test_mp4_with_64_bit_header(self):
+        make_mp4(self.path("VID-20260825-WA0029.mp4"), version=1)
+        self.run_fix()
+        self.assertEqual(core.read_mp4_date(self.path("VID-20260825-WA0029.mp4")),
+                         datetime(2026, 8, 25, 12, 0, 29))
+
+    def test_log_file(self):
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        make_jpeg(self.path("photo.jpg"))
+        plans = core.plan_organise(self.dir, core.ADD)
+        core.apply_plans(plans, self.dir)
+        log = os.path.join(self.dir, "log.csv")
+        core.write_log(plans, log)
+        with open(log, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.reader(f))
+        self.assertEqual(rows[0][0], "File")
+        self.assertEqual(len(rows), 3)
+        renamed = next(r for r in rows if "WA0002" in r[0])
+        self.assertTrue(renamed[5].endswith("2026_08_22_0000_IMG-20260822-WA0002.jpeg"))
+
+    def test_command_line(self):
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        with mock.patch("sys.stdout", new=io.StringIO()) as out:
+            core.main([self.dir, "--rename"])
+        self.assertIn("Preview only", out.getvalue())
+        self.assertEqual(self.files(), ["IMG-20260822-WA0002.jpeg"])
+        with mock.patch("sys.stdout", new=io.StringIO()):
+            core.main([self.dir, "--rename", "--apply"])
+        self.assertEqual(self.files(), ["2026_08_22_0000_IMG-20260822-WA0002.jpeg"])
+        self.assertIsNotNone(core.read_jpeg_date(self.path("2026_08_22_0000_IMG-20260822-WA0002.jpeg")))
 
     def test_created_date_is_set(self):
         make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
