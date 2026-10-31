@@ -44,6 +44,9 @@ A CSV log of every change is saved next to the exe.
 
 ## Development
 
+See the **[developer guide](docs/DEVELOPMENT.md)** for how it works, how
+self-update works, releasing, and known limitations. Quick start:
+
 ```
 pip install -r requirements.txt -r requirements-dev.txt
 python app.py                                  # the window
