@@ -95,6 +95,11 @@ the list, the date added to the name is **blue** and the month folder is
   - **Take photos out of month folders.** Moves photos out of any `YYYY_MM`
     folder into the folder above it.
 
+Running Organise again never adds anything twice. The date is replaced, not
+added again, and photos already in the right month folder stay there. If you
+choose a month folder itself (e.g. `2026_08`), month folders are made beside
+it, not inside it.
+
 If two files would end up with the same name, the second gets ` (2)` added
 rather than overwriting. Folders left empty are removed.
 

@@ -161,7 +161,9 @@ calls it again whenever a choice changes, so the preview is always up to date.
 - **`folders`**: `LEAVE`, `INTO` or `OUT`.
   - `INTO` moves every dated file into `<root>/YYYY_MM/`, wherever it was.
     Numbering is per destination folder, so with both it's "oldest of the
-    month in that folder is 0000".
+    month in that folder is 0000". If `root` is itself a month folder, the
+    month folders go beside it (`months_in` is its parent), so choosing
+    `2026_08` never makes `2026_08/2026_08`.
   - `OUT` moves files whose folder matches `MONTH_FOLDER` (`^\d{4}_\d{2}$`)
     up one level, dated or not. Their original subfolders aren't recorded, so
     `OUT` can't restore them.

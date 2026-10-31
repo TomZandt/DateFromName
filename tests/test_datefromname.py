@@ -293,6 +293,22 @@ class FolderTests(unittest.TestCase):
                                         "photo.jpg"])
         self.assertFalse(os.path.exists(self.path("2026_08")))
 
+    def test_organise_twice_adds_nothing_twice(self):
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        self.tidy(core.ADD, core.INTO)
+        self.tidy(core.ADD, core.INTO)
+        self.assertEqual(self.files(), ["2026_08/2026_08_22_0000_IMG-20260822-WA0002.jpeg"])
+
+    def test_choosing_a_month_folder_does_not_nest(self):
+        os.makedirs(self.path("2026_08"))
+        make_jpeg(self.path("2026_08/IMG-20260822-WA0002.jpeg"))
+        make_jpeg(self.path("2026_08/IMG-20260901-WA0000.jpeg"))  # in the wrong month
+        plans = core.plan_organise(self.path("2026_08"), core.ADD, core.INTO)
+        for p in core.apply_plans(plans, self.path("2026_08")):
+            self.assertEqual(p.error, "")
+        self.assertEqual(self.files(), ["2026_08/2026_08_22_0000_IMG-20260822-WA0002.jpeg",
+                                        "2026_09/2026_09_01_0000_IMG-20260901-WA0000.jpeg"])
+
     def test_undated_files_can_leave_month_folders(self):
         os.makedirs(self.path("2026_08"))
         make_jpeg(self.path("2026_08/photo.jpg"))

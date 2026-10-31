@@ -478,11 +478,14 @@ def plan_new_paths(plans, root, prefix=LEAVE, folders=LEAVE):
     """
     groups = {}  # (folder, year, month) or (folder,) -> list of (plan, name)
     folder_names = {}
+    # If a month folder itself was chosen, make month folders beside it rather
+    # than inside it (no 2026_08/2026_08).
+    months_in = os.path.dirname(root) if MONTH_FOLDER.match(os.path.basename(root)) else root
     for plan in plans:
         plan.new_path = None
         folder = os.path.dirname(plan.path)
         if folders == INTO and plan.target:
-            folder = os.path.join(root, f"{plan.target:%Y_%m}")
+            folder = os.path.join(months_in, f"{plan.target:%Y_%m}")
         elif (folders == OUT and MONTH_FOLDER.match(os.path.basename(folder))
               and os.path.normcase(folder) != os.path.normcase(root)):
             folder = os.path.dirname(folder)

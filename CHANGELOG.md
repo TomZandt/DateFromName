@@ -12,6 +12,8 @@ What changed in each version of Fix Photo Dates. See the
   folders moved to the new **Organise** tab.
 - **Organise can undo** what it does: remove the date from the start of names,
   and take photos out of month folders.
+- **Fix:** choosing a month folder itself and putting photos into month folders
+  made `2026_08\2026_08`. The month folders now go beside it.
 - **New Renumber tab** closes the gaps in the numbers after photos are deleted,
   keeping the order.
 - **Colours in the preview:** the date added to a name is blue and the month
