@@ -48,13 +48,35 @@ class ParseNameTests(unittest.TestCase):
             "Screenshot_20260822-123456.png": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
             "WhatsApp Image 2026-08-22 at 9.05.01.jpeg": (datetime(2026, 8, 22, 9, 5, 1), core.LOCAL_TIME, 0),
             "holiday 2026-08-22 (2).jpg": (datetime(2026, 8, 22), core.DATE_ONLY, 0),
+            "IMG-20260822-WA0004~2.jpg": (datetime(2026, 8, 22), core.DATE_ONLY, 4),
+            "PXL_20260822_092200562.TS.mp4": (datetime(2026, 8, 22, 9, 22), core.UTC_TIME, 0),
+            "WhatsApp Image 2026-08-22 at 9.05.01 PM.jpeg": (datetime(2026, 8, 22, 21, 5, 1), core.LOCAL_TIME, 0),
+            "WhatsApp Video 2026-08-22 at 12.05.01 AM (1).mp4": (datetime(2026, 8, 22, 0, 5, 1), core.LOCAL_TIME, 0),
+            "20260822_123456.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "20260822_123456(0).jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "IMG20260822123456.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "VID20260822123456.mp4": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "MVIMG_20260822_123456.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "IMG_20260822_123456_HDR.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "DJI_20260822123456_0001_D.JPG": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "Screenshot_2026-08-22-12-34-56-123_com.whatsapp.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "Screenshot 2026-08-22 123456.png": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "photo_2026-08-22_12-34-56.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "photo_123@22-08-2026_12-34-56.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "2026-08-22 12.34.56.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "signal-2026-08-22-123456.jpg": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "2026_0822_123456_001.MP4": (datetime(2026, 8, 22, 12, 34, 56), core.LOCAL_TIME, 0),
+            "FB_IMG_1787398496123.jpg": (datetime(2026, 8, 22, 11, 34, 56), core.UTC_TIME, 0),
+            "RPReplay_Final1787398496.MP4": (datetime(2026, 8, 22, 11, 34, 56), core.UTC_TIME, 0),
+            "1787398496123.jpg": (datetime(2026, 8, 22, 11, 34, 56), core.UTC_TIME, 0),
         }
         for name, (when, kind, seq) in cases.items():
             with self.subTest(name=name):
                 self.assertEqual(core.parse_name(name), core.NameDate(when, kind, seq))
 
     def test_no_date(self):
-        for name in ("DSC_1234.jpg", "IMG_99999999.jpg", "photo.jpg"):
+        for name in ("DSC_1234.jpg", "IMG_99999999.jpg", "photo.jpg", "GX010123.MP4",
+                     "IMG_1234.HEIC", "P1010123.JPG", "IMG_20261399_123456.jpg"):
             self.assertIsNone(core.parse_name(name))
 
 
@@ -154,6 +176,16 @@ class FolderTests(unittest.TestCase):
         plans, skipped = core.plan_folder(self.dir)
         self.assertEqual(plans, [])
         self.assertEqual([os.path.basename(s) for s in skipped], ["photo.jpg"])
+
+    def test_camera_names_use_date_inside_file(self):
+        taken = datetime(2026, 8, 22, 15, 0, 0)
+        make_jpeg(self.path("DSC_1234.JPG"), taken)
+        make_mp4(self.path("GX010123.MP4"), core.local_to_utc(taken))
+        plans, skipped = self.run_fix()
+        self.assertEqual(skipped, [])
+        for name in ("DSC_1234.JPG", "GX010123.MP4"):
+            self.assertFalse(plans[name].write_embedded)
+            self.assertEqual(self.modified(name), taken)
 
     def test_created_date_is_set(self):
         make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))

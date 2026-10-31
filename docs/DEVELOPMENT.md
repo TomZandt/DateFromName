@@ -40,17 +40,32 @@ of the design:
 
 ### 1. Read the name and the date inside the file
 
-`parse_name()` tries the regexes in `PATTERNS` in order and the first match
-wins, so the most specific patterns come first. Each pattern has a *kind*:
+`parse_name()` tries the regexes in `PATTERNS` in order and the first valid
+date wins, so the most specific patterns come first. Every match of a pattern
+is tried, so an invalid date earlier in the name doesn't hide a valid one
+later. The patterns use named groups: `y m d` for the date, `H M S` for the
+time, `ampm` for a 12-hour clock, `seq` for the WhatsApp order number, and
+`epoch` for Unix seconds (Facebook `FB_IMG_`, iPhone `RPReplay_Final`, or
+names that are just a timestamp; a 13-digit millisecond value is cut to
+seconds). The README table lists every layout we know of, with examples, and
+`ParseNameTests` has a case for each.
+
+Each pattern has a *kind*:
 
 | Kind | Example | Meaning |
 | ---- | ------- | ------- |
 | `DATE_ONLY` | `IMG-20260822-WA0004.jpeg` | The day is known but not the time. WhatsApp names also carry an order number (`WA0004`), kept as `seq`. |
-| `UTC_TIME` | `PXL_20260822_092200562.MP.jpg` | Google Pixel names use **UTC**, not local time. |
+| `UTC_TIME` | `PXL_20260822_092200562.MP.jpg`, `FB_IMG_1787398496123.jpg` | Google Pixel names and Unix timestamps are **UTC**, not local time. |
 | `LOCAL_TIME` | `IMG_20260822_123456.jpg`, `Screenshot_20260822-123456.png` | The date and time are local. |
 
-Years outside 1990 to next year are rejected, so random digit runs don't count
-as dates.
+Years outside 1990 to next year, and impossible dates or times, are rejected,
+so random digit runs don't count as dates.
+
+Dedicated cameras (`DSC_1234.JPG`, GoPro `GX010123.MP4`, iPhone `IMG_1234.JPG`)
+have **no date in the name**. `parse_name()` returns `None` for them, and they
+are only processed if a date can be read from inside the file. In that case the
+date inside is kept and only the Windows dates are lined up with it. A file with
+neither goes to the skipped list.
 
 `read_embedded_date()` reads the date already stored inside the file:
 
@@ -65,6 +80,7 @@ as dates.
 
 | Situation | Action | Why |
 | --------- | ------ | --- |
+| **No date in the name** (camera files) | Keep the date inside | It's the only date there is. |
 | The date inside the file **agrees** with the name | Keep it | It's already right. For timed names "agrees" means within 14 hours, to allow for time zones. For date-only names it means the same day. |
 | The date inside is **more than a day older** than the name | Keep it | Probably an edited or re-shared copy of an older photo, so the date inside is the real one. |
 | No date inside, or a **later** one | Write the name's date | A later date is usually the download or re-encode time. |
@@ -201,9 +217,12 @@ place and has no undo.
 
 ## Common changes
 
-**Adding a file name format.** Add a `(regex, kind)` entry to `PATTERNS` in
-`datefromname.py`, above any broader pattern it would otherwise lose to. Add a
-case to `ParseNameTests.test_patterns`. Then mention it in the README table.
+**Adding a file name format.** First check whether the general
+date-and-time pattern already handles it. It accepts `-`, `_`, `.` or nothing
+between the date parts, and most separators between the date and the time.
+Add the name to `ParseNameTests.test_patterns` and run the tests. If it fails,
+add a `(regex, kind)` entry to `PATTERNS` with named groups, above any broader
+pattern it would otherwise lose to. Then mention it in the README table.
 
 **Supporting another file type's internal date** (e.g. HEIC or PNG). Add a
 reader and a writer, branch on the extension in `read_embedded_date()` and
@@ -222,6 +241,15 @@ overwriting correct dates that were recorded in another time zone.
   protected your PC". A code-signing certificate would remove this.
 - **WhatsApp times are made up** (midday plus order number) unless the real
   time survived in the file's modified date.
+- **GoPro and some other cameras store local time in the MP4 header** where
+  the standard says UTC. For those files with no date in the name, the Windows
+  dates can be off by the time-zone difference (the order is still right).
+- **The pattern for names that are just a timestamp** (`^\d{10}`) would also
+  treat any other 10- or 13-digit name as a date, as long as it falls in a
+  plausible year.
+- **HEIC and RAW dates inside the file aren't read.** An iPhone `IMG_1234.HEIC`
+  has no date in its name, so it's skipped. Windows reads its "Date taken"
+  directly, so it usually doesn't need fixing.
 - **Only JPEG and MP4-family files get a date inside the file.** For other
   types, only the Windows created and modified dates change, which some apps
   ignore.

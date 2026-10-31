@@ -192,7 +192,8 @@ class App:
                      f"✔  {correct} already have the right date.",
                      f"✎  {len(self.changes)} will be fixed (listed below)."]
             if skipped:
-                lines.append(f"–  {len(skipped)} have no date in their name and will be left alone.")
+                lines.append(f"–  {len(skipped)} have no date in their name or inside the file "
+                             "and will be left alone.")
             lines.append("Click “Fix dates” to fix them.")
             self.say("\n".join(lines))
             self.fix_button.configure(text=f"2.  Fix {len(self.changes)} dates")

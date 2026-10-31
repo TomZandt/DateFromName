@@ -8,8 +8,9 @@ name usually still has the real date, e.g.
     VID-20260825-WA0029.mp4      WhatsApp video, date only (+ order number)
     PXL_20260822_092200562.jpg   Google Pixel, date and time in UTC
     IMG_20260822_123456.jpg      Most other phones, date and local time
+    DSC_1234.JPG                 Cameras: no date in the name, use the one inside
 
-For each file we compare the date stored inside the file with the date in
+(See PATTERNS for the full list of name layouts.) For each file we compare the date stored inside the file with the date in
 its name. If it is already right we leave it alone; otherwise we write the
 name's date into the file (JPEG "Date taken", MP4 "Media created") and set
 the Windows created/modified dates to match.
@@ -31,10 +32,12 @@ from datetime import datetime, timedelta, timezone
 
 import piexif
 
-JPEG_EXTS = {".jpg", ".jpeg"}
-MP4_EXTS = {".mp4", ".mov", ".m4v", ".3gp"}
+JPEG_EXTS = {".jpg", ".jpeg", ".jfif"}
+MP4_EXTS = {".mp4", ".mov", ".m4v", ".3gp", ".3g2"}
 MEDIA_EXTS = JPEG_EXTS | MP4_EXTS | {
-    ".png", ".gif", ".webp", ".heic", ".heif", ".avi", ".mkv",
+    ".png", ".gif", ".webp", ".heic", ".heif", ".bmp", ".tif", ".tiff",
+    ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf",
+    ".avi", ".mkv", ".mts", ".m2ts", ".wmv", ".mpg", ".mpeg", ".webm",
     ".opus", ".m4a", ".mp3", ".aac", ".wav",
 }
 
@@ -47,19 +50,33 @@ QUICKTIME_EPOCH = datetime(1904, 1, 1)
 # much of each other, which covers any time zone difference.
 TIME_ZONE_SLACK = timedelta(hours=14)
 
-# First match wins, so the most specific patterns come first.
-PATTERNS = [
+# First match wins, so the most specific patterns come first. Group names:
+# y m d = date, H M S = time, ampm = 12-hour clock, seq = WhatsApp order
+# number, epoch = seconds since 1970 (UTC).
+PATTERNS = [(re.compile(pattern, re.I), kind) for pattern, kind in [
     # WhatsApp: IMG-20260822-WA0004.jpeg, VID-20260825-WA0029.mp4
-    (re.compile(r"^(?:IMG|VID|AUD|PTT|STK|DOC)-(\d{4})(\d{2})(\d{2})-WA(\d+)", re.I), DATE_ONLY),
+    (r"^(?:IMG|VID|AUD|PTT|STK|DOC)-(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})-WA(?P<seq>\d+)", DATE_ONLY),
     # Google Pixel: PXL_20260822_092200562.MP.jpg (time is UTC)
-    (re.compile(r"^PXL_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", re.I), UTC_TIME),
-    # WhatsApp desktop and Mac screenshots: "WhatsApp Image 2026-08-22 at 12.34.56"
-    (re.compile(r"(\d{4})-(\d{2})-(\d{2}) at (\d{1,2})\.(\d{2})\.(\d{2})"), LOCAL_TIME),
-    # Most phones and screenshots: IMG_20260822_123456, Screenshot_20260822-123456
-    (re.compile(r"(?<!\d)(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})(?!\d)"), LOCAL_TIME),
+    (r"^PXL_(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})_(?P<H>\d{2})(?P<M>\d{2})(?P<S>\d{2})", UTC_TIME),
+    # Facebook/Messenger FB_IMG_1661234567890.jpg, iPhone screen recordings
+    # RPReplay_Final1661234567.mp4, and names that are only a timestamp
+    (r"^(?:FB_IMG_|RPReplay_Final)?(?P<epoch>\d{10})(?:\d{3})?(?!\d)", UTC_TIME),
+    # WhatsApp desktop and Mac: "WhatsApp Image 2026-08-22 at 12.34.56", "... at 9.05.01 PM"
+    (r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2}) at (?P<H>\d{1,2})[.:](?P<M>\d{2})[.:](?P<S>\d{2})"
+     r"(?:\s?(?P<ampm>[AP]M))?", LOCAL_TIME),
+    # Day first, old Telegram: photo_123@22-08-2026_12-34-56.jpg
+    (r"(?<!\d)(?P<d>\d{2})-(?P<m>\d{2})-(?P<y>\d{4})_(?P<H>\d{2})-(?P<M>\d{2})-(?P<S>\d{2})(?!\d)", LOCAL_TIME),
+    # Date and time in most other layouts:
+    #   IMG_20260822_123456 (most Android), 20260822_123456 (Samsung),
+    #   IMG20260822123456 (OnePlus/Oppo), DJI_20260822123456_0001 (DJI),
+    #   Screenshot_2026-08-22-12-34-56 (Xiaomi), photo_2026-08-22_12-34-56 (Telegram),
+    #   2026-08-22 12.34.56 (Dropbox), Screenshot 2026-08-22 123456 (Windows),
+    #   signal-2026-08-22-123456 (Signal), 2026_0822_123456 (dash cams)
+    (r"(?<!\d)(?P<y>\d{4})[-_.]?(?P<m>\d{2})[-_.]?(?P<d>\d{2})[ _T-]?"
+     r"(?P<H>\d{2})[-_.:h]?(?P<M>\d{2})[-_.:m]?(?P<S>\d{2})(?:\d{3})?(?!\d)", LOCAL_TIME),
     # Anything else with a date in it: 2026-08-22, 20260822
-    (re.compile(r"(?<!\d)(\d{4})-?(\d{2})-?(\d{2})(?!\d)"), DATE_ONLY),
-]
+    (r"(?<!\d)(?P<y>\d{4})[-_.]?(?P<m>\d{2})[-_.]?(?P<d>\d{2})(?!\d)", DATE_ONLY),
+]]
 
 
 @dataclass
@@ -72,8 +89,8 @@ class NameDate:
 @dataclass
 class Plan:
     path: str
-    name_date: NameDate
-    embedded: datetime | None  # date stored inside the file, local time
+    name_date: NameDate | None  # None for camera names like DSC_1234.JPG
+    embedded: datetime | None   # date stored inside the file, local time
     target: datetime | None = None
     write_embedded: bool = False
     set_file_times: bool = False
@@ -89,22 +106,28 @@ def parse_name(filename):
     """Return the NameDate found in a file name, or None."""
     stem = os.path.splitext(filename)[0]
     for pattern, kind in PATTERNS:
-        match = pattern.search(stem)
-        if not match:
-            continue
-        nums = [int(g) for g in match.groups()]
-        try:
-            if kind == DATE_ONLY:
-                when = datetime(*nums[:3])
-                seq = nums[3] if len(nums) > 3 else 0
-            else:
-                when = datetime(*nums[:6])
-                seq = 0
-        except ValueError:
-            continue
-        if 1990 <= when.year <= datetime.now().year + 1:
-            return NameDate(when, kind, seq)
+        for match in pattern.finditer(stem):
+            when = _match_to_datetime(match, kind)
+            if when and 1990 <= when.year <= datetime.now().year + 1:
+                seq = match.groupdict().get("seq")
+                return NameDate(when, kind, int(seq) if seq else 0)
     return None
+
+
+def _match_to_datetime(match, kind):
+    parts = match.groupdict()
+    num = {k: int(v) for k, v in parts.items() if v and v.isdigit()}
+    try:
+        if "epoch" in num:
+            return datetime.fromtimestamp(num["epoch"], timezone.utc).replace(tzinfo=None)
+        if kind == DATE_ONLY:
+            return datetime(num["y"], num["m"], num["d"])
+        hour = num["H"]
+        if parts.get("ampm"):
+            hour = hour % 12 + (12 if parts["ampm"].upper() == "PM" else 0)
+        return datetime(num["y"], num["m"], num["d"], hour, num["M"], num["S"])
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def utc_to_local(when):
@@ -263,7 +286,7 @@ def _pixel_offsets(plans):
     offsets = []
     for plan in plans:
         nd = plan.name_date
-        if nd.kind == UTC_TIME and plan.embedded and _agrees(plan.embedded, nd):
+        if nd and nd.kind == UTC_TIME and plan.embedded and _agrees(plan.embedded, nd):
             quarters = round((plan.embedded - nd.when) / timedelta(minutes=15))
             offsets.append((nd.when, timedelta(minutes=15 * quarters)))
     return offsets
@@ -282,10 +305,11 @@ def plan_folder(folder, recurse=True, progress=None):
     plans, skipped = [], []
     for i, path in enumerate(paths, 1):
         name_date = parse_name(os.path.basename(path))
-        if name_date is None:
-            skipped.append(path)
+        embedded = read_embedded_date(path)
+        if name_date or embedded:
+            plans.append(Plan(path, name_date, embedded))
         else:
-            plans.append(Plan(path, name_date, read_embedded_date(path)))
+            skipped.append(path)
         if progress:
             progress(i, len(paths))
 
@@ -300,7 +324,12 @@ def _decide(plan, offsets):
     ext = os.path.splitext(plan.path)[1].lower()
     created, modified = get_file_times(plan.path)
 
-    if embedded and _agrees(embedded, nd):
+    if nd is None:
+        # Cameras (DSC_1234.JPG, GX010123.MP4) don't put the date in the name,
+        # but do store it inside the file.
+        plan.target = embedded
+        plan.status = "Kept date inside file (no date in name)"
+    elif embedded and _agrees(embedded, nd):
         plan.target = embedded
         plan.status = "Already correct"
     elif embedded and embedded.date() < nd.when.date() - timedelta(days=1):
@@ -351,7 +380,7 @@ def write_log(plans, log_path):
         for p in plans:
             writer.writerow([
                 p.path,
-                p.name_date.when.strftime("%d/%m/%Y %H:%M:%S") + f" ({p.name_date.kind})",
+                p.name_date.when.strftime("%d/%m/%Y %H:%M:%S") + f" ({p.name_date.kind})" if p.name_date else "",
                 p.embedded.strftime("%d/%m/%Y %H:%M:%S") if p.embedded else "",
                 p.target.strftime("%d/%m/%Y %H:%M:%S") if p.target else "",
                 p.status,
