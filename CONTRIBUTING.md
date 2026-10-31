@@ -8,7 +8,15 @@ version.
 
 ## Commit messages: Conventional Commits
 
-Every commit message follows [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+Every commit message follows [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+Commits up to v1.2.0 came before this rule and keep their original messages,
+because published history isn't rewritten.
+
+```
+<type>(<optional scope>): <summary>
+```
+
+In full:
 
 ```
 <type>(<optional scope>): <summary>
