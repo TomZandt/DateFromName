@@ -277,6 +277,28 @@ class FolderTests(unittest.TestCase):
         self.assertEqual(self.files(), ["2026_08/2026_08_22_0000_IMG-20260822-WA0002 (2).jpeg",
                                         "2026_08/2026_08_22_0001_IMG-20260822-WA0002.jpeg"])
 
+    def test_renumber_closes_gaps_and_keeps_order(self):
+        os.makedirs(self.path("2026_08"))
+        names = ["2026_08_22_0000_a.jpg", "2026_08_22_0001_b.jpg", "2026_08_22_0002_c.jpg",
+                 "2026_08_23_0003_d.jpg", "2026_08_24_0004_e.jpg"]
+        for name in names:
+            make_jpeg(self.path(f"2026_08/{name}"))
+        make_jpeg(self.path("2026_08/IMG_unnumbered.jpg"))
+        os.remove(self.path("2026_08/2026_08_22_0000_a.jpg"))
+        os.remove(self.path("2026_08/2026_08_23_0003_d.jpg"))
+
+        plans = core.plan_renumber(self.dir)
+        self.assertEqual(sum(1 for p in plans if p.needs_change), 3)
+        for p in core.apply_plans(plans):
+            self.assertEqual(p.error, "")
+        self.assertEqual(self.files(), [
+            "2026_08/2026_08_22_0000_b.jpg",
+            "2026_08/2026_08_22_0001_c.jpg",
+            "2026_08/2026_08_24_0002_e.jpg",
+            "2026_08/IMG_unnumbered.jpg",
+        ])
+        self.assertEqual([p for p in core.plan_renumber(self.dir) if p.needs_change], [])
+
     def test_created_date_is_set(self):
         make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
         self.run_fix()

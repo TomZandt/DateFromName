@@ -79,8 +79,8 @@ PATTERNS = [(re.compile(pattern, re.I), kind) for pattern, kind in [
     (r"(?<!\d)(?P<y>\d{4})[-_.]?(?P<m>\d{2})[-_.]?(?P<d>\d{2})(?!\d)", DATE_ONLY),
 ]]
 
-# Optional prefix added by plan_renames: 2026_08_22_0000_IMG-20260822-WA0002.jpeg
-PREFIX = re.compile(r"^\d{4}_\d{2}_\d{2}_\d{4}_")
+# Optional prefix added by plan_new_paths: 2026_08_22_0000_IMG-20260822-WA0002.jpeg
+PREFIX = re.compile(r"^(?P<y>\d{4})_(?P<m>\d{2})_(?P<d>\d{2})_(?P<n>\d{4})_")
 
 
 @dataclass
@@ -498,6 +498,33 @@ def plan_new_paths(plans, root, add_prefix=False, month_folders=False):
             path = os.path.join(folder, _unique_name(name, used))
             if os.path.normcase(path) != os.path.normcase(plan.path):
                 plan.new_path = path
+
+
+def plan_renumber(folder, recurse=True):
+    """Close the gaps in #### left after deleting files.
+
+    Only files that already have our prefix are touched, and they keep their
+    order: within each month in each folder they become 0000, 0001, ...
+    Dates aren't read, so this is quick. Apply the result with apply_plans().
+    """
+    groups = {}
+    for path in find_media(folder, recurse):
+        match = PREFIX.match(os.path.basename(path))
+        if match:
+            key = (os.path.normcase(os.path.dirname(path)), match["y"], match["m"])
+            groups.setdefault(key, []).append((match["d"], match["n"], os.path.basename(path).lower(), path))
+
+    plans = []
+    for group in groups.values():
+        for number, (_, _, _, path) in enumerate(sorted(group)):
+            name = os.path.basename(path)
+            match = PREFIX.match(name)
+            wanted = f"{match['y']}_{match['m']}_{match['d']}_{number:04d}_{name[match.end():]}"
+            plan = Plan(path, None, None)
+            if wanted != name:
+                plan.new_path = os.path.join(os.path.dirname(path), wanted)
+            plans.append(plan)
+    return plans
 
 
 def apply_plan(plan):

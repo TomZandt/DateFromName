@@ -68,6 +68,15 @@ away, so you can see the result before clicking **Fix**.
 - **Save a list of the changes.** A CSV log is saved in a `FixPhotoDates logs`
   folder next to the exe.
 
+## Renumbering after deleting photos
+
+After deleting unwanted photos there are gaps in the numbers (`0000`, `0003`,
+`0007`…). Click **Renumber a folder**, choose the folder (subfolders are
+included), check the list and click **Renumber**. Within each month in each
+folder, the numbered photos become `0000`, `0001`, `0002`… in the same order as
+before. Nothing else changes: no dates, no moving, and files without a number
+are left alone.
+
 ## Development
 
 See the **[developer guide](docs/DEVELOPMENT.md)** for how it works, how

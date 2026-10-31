@@ -33,12 +33,15 @@ class App:
         self.plans = None
         self.skipped = []
         self.changes = []
+        self.renumbering = False
+        self.renumber_plans = []
         root.title(f"{TITLE}  ({VERSION})")
         root.geometry("1040x720")
         root.minsize(700, 480)
 
         style = ttk.Style()
         style.configure("Big.TButton", font=BIG_FONT, padding=(20, 12))
+        style.configure("Side.TButton", font=FONT, padding=(14, 10))
         style.configure("Treeview", font=("Segoe UI", 10), rowheight=24)
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
         style.configure("Update.TFrame", background="#fff4c2")
@@ -71,6 +74,10 @@ class App:
         self.fix_button = ttk.Button(buttons, text="2.  Fix dates", style="Big.TButton",
                                      command=self.fix, state="disabled")
         self.fix_button.pack(side="left", padx=(16, 0))
+        # Separate job: close the gaps in the numbers after deleting photos.
+        self.renumber_button = ttk.Button(buttons, text="Renumber a folder", style="Side.TButton",
+                                          command=self.choose_renumber_folder)
+        self.renumber_button.pack(side="left", padx=(48, 0))
 
         options = ttk.Frame(frame)
         options.pack(anchor="w", pady=(12, 0))
@@ -155,6 +162,7 @@ class App:
     def busy(self, is_busy):
         state = "disabled" if is_busy else "normal"
         self.choose_button.configure(state=state)
+        self.renumber_button.configure(state=state)
         for box in self.option_boxes:
             box.configure(state=state)
         self.fix_button.configure(state="disabled" if is_busy or not self.changes else "normal")
@@ -172,6 +180,7 @@ class App:
             return
         self.folder = os.path.normpath(folder)
         self.changes = []
+        self.renumbering = False
         self.tree.delete(*self.tree.get_children())
         self.say(f"Looking at the photos in {self.folder} …")
         self.busy(True)
@@ -239,21 +248,58 @@ class App:
             lines.append("Nothing needs changing.")
         self.say("\n".join(lines))
 
+    # --- renumbering (a separate job) ----------------------------------------------
+
+    def choose_renumber_folder(self):
+        folder = filedialog.askdirectory(title="Choose the folder to renumber")
+        if not folder:
+            return
+        self.folder = os.path.normpath(folder)
+        self.plans = None  # tick boxes don't apply to renumbering
+        self.renumbering = True
+        self.tree.delete(*self.tree.get_children())
+        try:
+            self.renumber_plans = core.plan_renumber(self.folder)
+        except Exception as exc:
+            self.renumber_plans = []
+            self.say(f"Sorry, something went wrong reading that folder:\n{exc}")
+            return
+        self.changes = [p for p in self.renumber_plans if p.needs_change]
+        for p in self.changes:
+            self.tree.insert("", "end", values=(os.path.relpath(p.path, self.folder), "", "",
+                                                os.path.relpath(p.new_path, self.folder), "New number"))
+        self.fix_button.configure(state="normal" if self.changes else "disabled")
+
+        if not self.renumber_plans:
+            self.say("None of the photos in this folder have numbers at the start of their name yet.\n"
+                     "To add them, tick “Add the date to the start of each file name” "
+                     "and use “Choose photo folder”.")
+        elif not self.changes:
+            self.say(f"All {len(self.renumber_plans)} numbered photos and videos are already in order, "
+                     "with no gaps. Nothing needs changing.")
+        else:
+            self.say(f"Found {len(self.renumber_plans)} numbered photos and videos.\n"
+                     f"↪  {len(self.changes)} will get a new number to close the gaps. "
+                     "Their order stays the same.\n"
+                     "Check the list below, then click “Renumber”.")
+            self.fix_button.configure(text=f"2.  Renumber {len(self.changes)} files")
+
     # --- step 2: fix -------------------------------------------------------------
 
     def fix(self):
         self.busy(True)
-        self.say("Fixing … please wait.")
+        self.say("Working … please wait.")
         threading.Thread(target=self._fix, daemon=True).start()
 
     def _fix(self):
-        core.apply_plans(self.plans, self.folder, progress=self.show_progress)
+        plans = self.renumber_plans if self.renumbering else self.plans
+        core.apply_plans(plans, self.folder, progress=self.show_progress)
         log_path = None
         if self.save_log.get():
             log_path = os.path.join(log_folder(), f"FixPhotoDates log {datetime.now():%Y-%m-%d %H-%M-%S}.csv")
             try:
                 os.makedirs(log_folder(), exist_ok=True)
-                core.write_log(self.plans, log_path)
+                core.write_log(plans, log_path)
             except OSError:
                 log_path = None
         self.root.after(0, lambda: self._fix_done(log_path))
@@ -265,7 +311,8 @@ class App:
         self.plans = None  # the list is out of date now; choose the folder again to recheck
         self.busy(False)
         self.fix_button.configure(text="2.  Fix dates")
-        lines = [f"Done!  {fixed} photos and videos have been updated."]
+        verb = "renumbered" if self.renumbering else "updated"
+        lines = [f"Done!  {fixed} photos and videos have been {verb}."]
         if failed:
             lines.append(f"{len(failed)} had a problem (see the list below).")
         lines.append("You can close this window, or choose another folder.")

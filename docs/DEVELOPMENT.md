@@ -163,6 +163,16 @@ on each folder a file left, and its parents up to the chosen folder.
 If the app is killed between the two steps, files can be left with a
 `~renaming` name. Running the app again won't repair those.
 
+**Renumber a folder** is a separate button for closing gaps after the user
+deletes photos. `plan_renumber()` looks only at files whose name matches
+`PREFIX`, groups them by folder and the prefix's year and month, sorts by
+(prefix day, old number, name) and numbers them from `0000`. It reads nothing
+inside the files, so the order is exactly the existing order and it's fast. It
+returns plain `Plan`s with only `new_path` set, so `apply_plans()` does the
+renaming with the same two-step swap. In the window, `self.renumbering`
+switches the Fix button over to these plans, and the tick boxes have no effect
+until a folder is chosen with **Choose photo folder** again.
+
 ### 5. Log
 
 A CSV log of every file is **optional and off by default**, so logs don't pile
