@@ -9,6 +9,8 @@ afterwards.
 This README is the starting point for everything about the project. Every
 other document is linked from [Documentation](#documentation) at the bottom.
 
+![The Fix dates tab, listing the photos whose dates it will fix](docs/images/fix-dates.png)
+
 ## Installing (no setup needed)
 
 1. Download **FixPhotoDates.exe**. This link always gives the newest version:
@@ -81,6 +83,8 @@ Both choices start on "Leave". Changing one updates the list straight away. In
 the list, the date added to the name is **blue** and the month folder is
 **green**.
 
+![The Organise tab, adding the date to names and putting photos into month folders](docs/images/organise.png)
+
 - **Date at the start of the name**
   - **Add it (and renumber).** For example, `IMG-20260822-WA0002.jpeg` becomes
     `2026_08_22_0000_IMG-20260822-WA0002.jpeg`. The four-digit number counts
@@ -109,6 +113,8 @@ After deleting unwanted photos there are gaps in the numbers (`0000`, `0003`,
 `0007`…). Renumber closes them: within each month in each folder, the numbered
 photos become `0000`, `0001`, `0002`… in the same order as before. Files
 without a number are left alone. It doesn't read the photos, so it's quick.
+
+![The Renumber tab, closing the gaps in three numbered photos](docs/images/renumber.png)
 
 ## Good to know
 

@@ -272,7 +272,9 @@ how it follows from the commit types, is in
    and click through each tab on a copy of some test photos. The tests don't
    cover the built exe.
 4. Check the docs match what's changed: the README for anything users see,
-   this guide for how it works, CONTRIBUTING for process.
+   this guide for how it works, CONTRIBUTING for process. If the window
+   changed, retake the README screenshots in `docs/images/`. Use test photos
+   only, never real ones, at the default window size, one per tab.
 5. In [CHANGELOG.md](../CHANGELOG.md), rename "Unreleased" to the new
    version and date. Commit with `docs(release): vX.Y.Z`.
 6. Tag and push:
