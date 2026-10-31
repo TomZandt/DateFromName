@@ -204,9 +204,8 @@ class FolderTests(unittest.TestCase):
         self.assertFalse(plans["IMG_1234.HEIC"].write_embedded)
         self.assertEqual(self.modified("IMG_1234.HEIC"), taken)
 
-    def tidy(self, add_prefix=False, month_folders=False):
-        plans, skipped = core.plan_folder(self.dir)
-        core.plan_new_paths(plans, self.dir, add_prefix, month_folders)
+    def tidy(self, prefix=core.LEAVE, folders=core.LEAVE):
+        plans = core.plan_organise(self.dir, prefix, folders)
         for p in core.apply_plans(plans, self.dir):
             self.assertEqual(p.error, "")
         return plans
@@ -219,7 +218,7 @@ class FolderTests(unittest.TestCase):
         for name in ("IMG-20260823-WA0001.jpeg", "IMG-20260822-WA0005.jpeg",
                      "IMG-20260822-WA0002.jpeg", "IMG-20260901-WA0000.jpeg"):
             make_jpeg(self.path(name))
-        self.tidy(add_prefix=True)
+        self.tidy(core.ADD)
         self.assertEqual(self.files(), [
             "2026_08_22_0000_IMG-20260822-WA0002.jpeg",
             "2026_08_22_0001_IMG-20260822-WA0005.jpeg",
@@ -229,9 +228,8 @@ class FolderTests(unittest.TestCase):
 
     def test_prefix_twice_changes_nothing(self):
         make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
-        self.tidy(add_prefix=True)
-        plans, _ = core.plan_folder(self.dir)
-        core.plan_new_paths(plans, self.dir, add_prefix=True)
+        self.tidy(core.ADD)
+        plans = core.plan_organise(self.dir, core.ADD)
         self.assertEqual([p for p in plans if p.needs_change], [])
 
     def test_prefixed_name_still_parses(self):
@@ -245,9 +243,9 @@ class FolderTests(unittest.TestCase):
     def test_renumbering_can_swap_names(self):
         # A new, earlier photo arrives: 0000 must become 0001 and the newcomer 0000.
         make_jpeg(self.path("IMG-20260822-WA0005.jpeg"))
-        self.tidy(add_prefix=True)
+        self.tidy(core.ADD)
         make_jpeg(self.path("IMG-20260822-WA0001.jpeg"))
-        self.tidy(add_prefix=True)
+        self.tidy(core.ADD)
         self.assertEqual(self.files(), [
             "2026_08_22_0000_IMG-20260822-WA0001.jpeg",
             "2026_08_22_0001_IMG-20260822-WA0005.jpeg",
@@ -260,7 +258,7 @@ class FolderTests(unittest.TestCase):
         make_jpeg(self.path("Holiday/IMG-20260901-WA0000.jpeg"))
         make_jpeg(self.path("Mixed/IMG-20260902-WA0000.jpeg"))
         make_jpeg(self.path("Mixed/photo.jpg"))  # no date: stays, so Mixed stays
-        self.tidy(month_folders=True)
+        self.tidy(folders=core.INTO)
         self.assertEqual(self.files(), [
             "2026_08/IMG-20260822-WA0002.jpeg",
             "2026_09/IMG-20260901-WA0000.jpeg",
@@ -274,12 +272,39 @@ class FolderTests(unittest.TestCase):
         os.makedirs(self.path("b"))
         make_jpeg(self.path("a/IMG-20260822-WA0002.jpeg"))
         make_jpeg(self.path("b/IMG-20260822-WA0002.jpeg"))
-        self.tidy(month_folders=True)
+        self.tidy(folders=core.INTO)
         self.assertEqual(self.files(), ["2026_08/IMG-20260822-WA0002 (2).jpeg",
                                         "2026_08/IMG-20260822-WA0002.jpeg"])
-        self.tidy(add_prefix=True, month_folders=True)
+        self.tidy(core.ADD, core.INTO)
         self.assertEqual(self.files(), ["2026_08/2026_08_22_0000_IMG-20260822-WA0002 (2).jpeg",
                                         "2026_08/2026_08_22_0001_IMG-20260822-WA0002.jpeg"])
+
+    def test_organise_can_be_undone(self):
+        os.makedirs(self.path("Holiday"))
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        make_jpeg(self.path("Holiday/IMG-20260901-WA0000.jpeg"))
+        make_jpeg(self.path("photo.jpg"))  # no date
+        self.tidy(core.ADD, core.INTO)
+        self.assertEqual(self.files(), ["2026_08/2026_08_22_0000_IMG-20260822-WA0002.jpeg",
+                                        "2026_09/2026_09_01_0000_IMG-20260901-WA0000.jpeg",
+                                        "photo.jpg"])
+        self.tidy(core.REMOVE, core.OUT)
+        self.assertEqual(self.files(), ["IMG-20260822-WA0002.jpeg", "IMG-20260901-WA0000.jpeg",
+                                        "photo.jpg"])
+        self.assertFalse(os.path.exists(self.path("2026_08")))
+
+    def test_undated_files_can_leave_month_folders(self):
+        os.makedirs(self.path("2026_08"))
+        make_jpeg(self.path("2026_08/photo.jpg"))
+        make_jpeg(self.path("photo.jpg"))
+        self.tidy(folders=core.OUT)
+        self.assertEqual(self.files(), ["photo (2).jpg", "photo.jpg"])
+
+    def test_organise_does_not_change_dates(self):
+        make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
+        self.tidy(core.ADD)
+        self.assertIsNone(core.read_jpeg_date(self.path("2026_08_22_0000_IMG-20260822-WA0002.jpeg")))
+        self.assertEqual(self.modified("2026_08_22_0000_IMG-20260822-WA0002.jpeg"), DOWNLOADED)
 
     def test_renumber_closes_gaps_and_keeps_order(self):
         os.makedirs(self.path("2026_08"))

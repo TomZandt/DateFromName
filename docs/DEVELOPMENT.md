@@ -1,26 +1,24 @@
 # Developer guide
 
-This is for anyone maintaining Fix Photo Dates. The [README](../README.md) is the
-user-facing overview.
+This is for anyone maintaining Fix Photo Dates. Start with the
+[README](../README.md). It's the single source of truth for what the app does:
+the tabs, every file name it recognises, the rules for each file and the
+limitations users see. This guide only covers how that's built, and links back
+to the README rather than repeating it.
 
-## The problem it solves
+## Who it's for
 
-When photos are downloaded from Google Photos to Windows, some lose their
-"Date taken", especially WhatsApp ones, which have it stripped when sent. Windows
-then shows the download date, so a whole summer's photos all appear as
-"31/10/2026 12:21" and sort in the wrong order. The file names still hold the
-real date (`IMG-20260822-WA0004.jpeg`), so the app copies that date back into
-the file.
-
-The intended user is not technical and has nothing installed. That drives most
+The problem is in the README's opening paragraph. The intended user is not
+technical and has nothing installed. That drives most
 of the design:
 
 - **One `.exe` with everything bundled.** No Python and no installer.
-- **A simple window.** Two tabs, **Fix dates** and **Renumber**. Each is a
-  two-step job that reads top to bottom: a short explanation, **1. Choose
-  folder**, the preview list, then **2. Fix** or **2. Renumber** under the list.
-  Messages are in plain English.
-- **Nothing changes until step 2 is clicked.** Choosing a folder and ticking
+- **A simple window.** Three tabs, each doing one job: **Fix dates** (dates
+  only), **Organise** (names and month folders only) and **Renumber** (close
+  gaps after deleting). Each reads top to bottom: a short explanation,
+  **1. Choose folder**, the preview list, then the **2.** button under the
+  list. Messages are in plain English.
+- **Nothing changes until step 2 is clicked.** Choosing a folder and changing
   options only previews the changes.
 - **Updates itself.** The app offers new versions itself, so the user never
   has to visit GitHub.
@@ -30,16 +28,24 @@ of the design:
 | File | Purpose |
 | ---- | ------- |
 | [datefromname.py](../datefromname.py) | All the date logic: parsing names, reading and writing dates, deciding what to do. It has no GUI code and also works as a command-line tool. |
-| [app.py](../app.py) | The tkinter window, the entry point for the `.exe`. It's a thin layer over `datefromname`. `Tab` holds the shared two-step layout (choose, preview, go, done) and `FixTab` and `RenumberTab` fill in `scan()` and `show_plan()`. A third job would be another `Tab` subclass. The preview list is a `ColourTable` (a read-only `tk.Text` lined up with tab stops), because `ttk.Treeview` can only colour whole rows. In the "New name" column, the month folder is green (`FOLDER_COLOUR`) and the date prefix is blue (`PREFIX_COLOUR`), matching the tick boxes. |
+| [app.py](../app.py) | The tkinter window, the entry point for the `.exe`. It's a thin layer over `datefromname`. `Tab` holds the shared two-step layout (choose, preview, go, done). `FixTab`, `OrganiseTab` and `RenumberTab` fill in `scan()` and `show_plan()`, and `OrganiseTab` adds `build_options()`. Another job would be another `Tab` subclass. The preview list is a `ColourTable` (a read-only `tk.Text` lined up with tab stops), because `ttk.Treeview` can only colour whole rows. In the "New name" column, the month folder is green (`FOLDER_COLOUR`) and the date prefix is blue (`PREFIX_COLOUR`), matching the Organise choices. |
 | [updater.py](../updater.py) | Checks GitHub Releases and swaps in the new `.exe`. |
 | [_version.py](../_version.py) | `VERSION = "dev"` in the repo. The release workflow overwrites it with the tag. |
 | [tests/test_datefromname.py](../tests/test_datefromname.py) | Unit tests. These build real JPEG and MP4 files in a temp folder. |
 | [.github/workflows/release.yml](../.github/workflows/release.yml) | On a `v*` tag, it tests, builds and publishes the release. |
+| `requirements.txt` / `requirements-dev.txt` | `piexif` is the only thing bundled into the exe. Pillow, pillow-heif (to make test images) and a pinned PyInstaller are for development and building. |
+| [CHANGELOG.md](../CHANGELOG.md) | What changed in each release. Update it before tagging. |
+| [LICENSE](../LICENSE) | MIT. |
 
 ## How a file is processed
 
-`plan_folder()` makes two passes over the folder. Nothing is written until
-`apply_plans()` is called.
+Sections 1 to 3 are the **Fix dates** tab (`FixTab`), section 4 is
+**Organise** and **Renumber**, and section 5 is the log. Every job works the
+same way: a `plan_*()` function builds a list of `Plan`s (what would happen to
+each file) without touching anything, the window shows them, and
+`apply_plans()` makes the changes.
+
+`plan_folder()` makes two passes over the folder.
 
 ### 1. Read the name and the date inside the file
 
@@ -87,12 +93,15 @@ neither goes to the skipped list.
 
 ### 2. Decide (`_decide`)
 
-| Situation | Action | Why |
-| --------- | ------ | --- |
-| **No date in the name** (camera files) | Keep the date inside | It's the only date there is. |
-| The date inside the file **agrees** with the name | Keep it | It's already right. For timed names "agrees" means within 14 hours, to allow for time zones. For date-only names it means the same day. |
-| The date inside is **more than a day older** than the name | Keep it | Probably an edited or re-shared copy of an older photo, so the date inside is the real one. |
-| No date inside, or a **later** one | Write the name's date | A later date is usually the download or re-encode time. |
+The rules are listed under "For each file" in the README's
+[Fix dates](../README.md#fix-dates) section. `_decide()` checks them in that
+order:
+
+- **Agrees** (`_agrees()`): within `TIME_ZONE_SLACK` (14 hours) for timed
+  names, to allow for any time zone, or the same day for date-only names.
+- **Older**: more than a day before the name's date. This is treated as an
+  edited copy of an older photo, so the date inside is trusted.
+- **Later**: usually the download or re-encode time, so it's overwritten.
 
 When writing a date from a `DATE_ONLY` name:
 
@@ -131,29 +140,40 @@ If writing the date inside a file fails, the Windows dates are still set and
 the error is shown in the window and recorded in the log. One bad file doesn't
 stop the rest.
 
-### 4. Optional: rename and sort into month folders
+### 4. Organise: rename and sort into month folders
 
-Both are off by default and work independently. `plan_new_paths()` sets
-`plan.new_path` and runs again every time a tick box changes, so the preview's
-"New name" column is always up to date. It uses `plan.target` (the final date),
-so it works whether or not the date needed fixing.
+This is the **Organise** tab (`OrganiseTab`). It never changes dates.
+`plan_organise()` runs `plan_folder()` to get each file's date (`plan.target`,
+the corrected date even though it isn't written), adds the undated files as
+plain `Plan`s, and clears `write_embedded`/`set_file_times`. Then
+`plan_new_paths(plans, root, prefix, folders)` sets `plan.new_path`. The window
+calls it again whenever a choice changes, so the preview is always up to date.
 
-- **Prefix** (`add_prefix`): `YYYY_MM_DD_####_<original name>`. Files are
-  grouped by destination folder and month and sorted by date, then name.
-  `####` counts from `0000`. Any prefix matching `PREFIX`
-  (`^\d{4}_\d{2}_\d{2}_\d{4}_`) is stripped first. That makes running twice a
-  no-op and lets new photos renumber the month. `parse_name()` also strips it,
-  so prefixed WhatsApp and Pixel names still parse. Turning the option off
-  doesn't remove existing prefixes.
-- **Month folders** (`month_folders`): every dated file goes into
-  `<chosen folder>/YYYY_MM/`, wherever it was. Numbering is per destination
-  folder, so with both options it's "oldest of the month in that folder is
-  0000".
-- **Name clashes** within a destination get ` (2)`, ` (3)` and so on. When
-  only moving, files already in the destination keep their name and the
-  newcomer gets the suffix. A clash with a file that isn't being processed
-  (e.g. an undated `photo.jpg` already there) is caught at apply time. That
-  file is put back where it was and the clash is reported.
+- **`prefix`**: `LEAVE`, `ADD` or `REMOVE`.
+  - `ADD` gives `YYYY_MM_DD_####_<original name>`. Files are grouped by
+    destination folder and month and sorted by date, then name, and `####`
+    counts from `0000`. Any existing prefix matching `PREFIX` is stripped
+    first, so running twice is a no-op and adding photos renumbers the month.
+    Undated files keep their name.
+  - `REMOVE` strips `PREFIX`.
+  - `parse_name()` also strips the prefix, so prefixed WhatsApp and Pixel
+    names still parse.
+- **`folders`**: `LEAVE`, `INTO` or `OUT`.
+  - `INTO` moves every dated file into `<root>/YYYY_MM/`, wherever it was.
+    Numbering is per destination folder, so with both it's "oldest of the
+    month in that folder is 0000".
+  - `OUT` moves files whose folder matches `MONTH_FOLDER` (`^\d{4}_\d{2}$`)
+    up one level, dated or not. Their original subfolders aren't recorded, so
+    `OUT` can't restore them.
+- **Name clashes** within a destination get ` (2)`, ` (3)` and so on. The
+  `used` names set is shared per folder. Plain (unnumbered) groups are
+  assigned first, with files already in the folder ahead of newcomers, so a
+  file that isn't moving keeps its name. A clash with a file that isn't part
+  of the plan is caught at apply time. That file is put back where it was and
+  the clash is reported.
+
+The command line has the same choices as `--rename`, `--remove-prefix`,
+`--month-folders` and `--out-of-month-folders`.
 
 `apply_plans()` fixes the dates first, then does all the renames in two steps:
 first to `~renaming<n>~<name>` in the original folder, then to the final path.
@@ -166,14 +186,14 @@ on each folder a file left, and its parents up to the chosen folder.
 If the app is killed between the two steps, files can be left with a
 `~renaming` name. Running the app again won't repair those.
 
-**Renumber a folder** is a separate button for closing gaps after the user
-deletes photos. `plan_renumber()` looks only at files whose name matches
-`PREFIX`, groups them by folder and the prefix's year and month, sorts by
+**Renumber** is a separate tab for closing gaps after the user deletes
+photos. (Organise with "Add it" also renumbers, but it reads every file's date
+and would add prefixes to unnumbered files too.) `plan_renumber()` looks only
+at files whose name matches `PREFIX`, groups them by folder and the prefix's year and month, sorts by
 (prefix day, old number, name) and numbers them from `0000`. It reads nothing
 inside the files, so the order is exactly the existing order and it's fast. It
 returns plain `Plan`s with only `new_path` set, so `apply_plans()` does the
-renaming with the same two-step swap. In the window it has its own
-**Renumber** tab (`RenumberTab`).
+renaming with the same two-step swap (`RenumberTab`).
 
 Because the prefix itself is a date, `parse_name()` falls back to it (as
 `DATE_ONLY`, with the number as `seq`) when the rest of the name has no date,
@@ -183,9 +203,10 @@ would skip those files.
 ### 5. Log
 
 A CSV log of every file is **optional and off by default**, so logs don't pile
-up on the user's PC. It's saved only when the "Also save a list of the changes"
-tick box is ticked. It goes in a `FixPhotoDates logs` folder next to the `.exe`
-(or next to `app.py` when run from source), named
+up on the user's PC. It's saved only when the "Save a list of the changes" tick
+box at the bottom of the window is ticked. It applies to every tab. It goes in
+a `FixPhotoDates logs` folder next to the `.exe` (or next to `app.py` when run
+from source), named
 `FixPhotoDates log <date time>.csv`. The command-line tool never writes a log.
 
 ## Self-update
@@ -234,9 +255,13 @@ with `REPO` pointing at the new one.
 
 ## Releasing
 
+1. Add the changes to [CHANGELOG.md](../CHANGELOG.md) under the new version
+   and commit.
+2. Tag and push:
+
 ```
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.3.0
+git push origin v1.3.0
 ```
 
 The workflow runs on `windows-latest` (about 1 minute):
@@ -250,8 +275,8 @@ The workflow runs on `windows-latest` (about 1 minute):
 Each new tag must be numerically higher than the last, or installed copies
 won't offer it.
 
-This link always gives the newest version, so it's the one to give to users:
-https://github.com/TomZandt/DateFromName/releases/latest/download/FixPhotoDates.exe
+Give users the download link in the README. It always points at the newest
+release.
 
 ## Working locally
 
@@ -261,6 +286,8 @@ python -m unittest discover -s tests -v
 python app.py                                  # the window
 python datefromname.py "D:\Photos"             # preview on the command line
 python datefromname.py "D:\Photos" --apply     # fix on the command line
+python datefromname.py "D:\Photos" --rename --month-folders --apply
+python datefromname.py "D:\Photos" --remove-prefix --out-of-month-folders --apply
 ```
 
 To build the exe locally:
@@ -273,7 +300,11 @@ The output goes to `dist/`. `build/`, `dist/` and `*.spec` are git-ignored. A
 local build reports its version as `dev` and never updates itself.
 
 Always try changes on a **copy** of a photo folder. The app changes files in
-place and has no undo.
+place, and date fixes can't be undone.
+
+To try the window without your own photos, make test files with the helpers in
+the tests (`make_jpeg`, `make_mp4`), e.g. a few `IMG-YYYYMMDD-WAnnnn.jpeg`
+files with no EXIF and a `PXL_` file with EXIF.
 
 ## Common changes
 
@@ -295,28 +326,23 @@ overwriting correct dates that were recorded in another time zone.
 
 ## Known limitations
 
-- **No undo.** The optional CSV log records the old and new dates, but nothing
-  reads it back.
+Limitations users notice are in the README's
+[Good to know](../README.md#good-to-know) section. These are the
+developer-facing ones:
+
 - **The exe is unsigned,** so the first run shows SmartScreen's "Windows
-  protected your PC". A code-signing certificate would remove this.
-- **WhatsApp times are made up** (midday plus order number) unless the real
-  time survived in the file's modified date.
-- **GoPro and some other cameras store local time in the MP4 header** where
-  the standard says UTC. For those files with no date in the name, the Windows
-  dates can be off by the time-zone difference (the order is still right).
+  protected your PC" (the README tells users how to get past it). A
+  code-signing certificate would remove this.
+- **If the app is closed mid-rename**, files can be left named `~renaming…`.
+  Nothing repairs them automatically.
 - **The pattern for names that are just a timestamp** (`^\d{10}`) would also
   treat any other 10- or 13-digit name as a date, as long as it falls in a
   plausible year.
-- **RAW dates inside the file aren't read** (`.CR2`, `.NEF` and so on). A RAW
-  file with no date in its name is skipped.
-- **iPhone screenshots** (`IMG_1234.PNG`) have no date in the name or inside
-  the file, so they're skipped.
-- **Only JPEG and MP4-family files get a date inside the file.** For other
-  types, only the Windows created and modified dates change, which some apps
-  ignore.
-- **The update needs write access to the exe's folder.** That's fine on the
-  Desktop or in Downloads. If the exe is in `Program Files`, the app falls
-  back to opening the releases page.
+- **HEIC, PNG and RAW dates are never written,** only read (HEIC) or ignored.
+  See "Supporting another file type's internal date" above.
+- **Updating from v1.0.0 or v1.1.0** shows a harmless "Failed to remove
+  temporary directory" warning once, because those versions start the new exe
+  the old way. Fixed from v1.1.1 on.
 - **The workflow uses `actions/checkout@v4` and `actions/setup-python@v5`.**
   GitHub warns these use the deprecated Node 20. It still works. Bump them to
   their Node 24 versions when convenient.

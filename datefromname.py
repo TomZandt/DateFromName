@@ -1,24 +1,12 @@
-"""Fix photo and video dates using the date in the file name.
+"""Fix photo and video dates using the date in the file name, and organise them.
 
-Photos downloaded from Google Photos (especially WhatsApp ones) often lose
-their "Date taken", so Windows shows the download date instead. The file
-name usually still has the real date, e.g.
-
-    IMG-20260822-WA0004.jpeg     WhatsApp photo, date only (+ order number)
-    VID-20260825-WA0029.mp4      WhatsApp video, date only (+ order number)
-    PXL_20260822_092200562.jpg   Google Pixel, date and time in UTC
-    IMG_20260822_123456.jpg      Most other phones, date and local time
-    DSC_1234.JPG                 Cameras: no date in the name, use the one inside
-
-(See PATTERNS for the full list of name layouts.) For each file we compare the date stored inside the file with the date in
-its name. If it is already right we leave it alone; otherwise we write the
-name's date into the file (JPEG "Date taken", MP4 "Media created") and set
-the Windows created/modified dates to match.
-
-Command line use (the GUI in app.py uses the same functions):
+All the logic behind the app's three tabs, with no GUI code. What it does
+and the file names it recognises are described in README.md; how it works is
+in docs/DEVELOPMENT.md. It also runs from the command line:
 
     python datefromname.py "D:\\Photos"           preview only
     python datefromname.py "D:\\Photos" --apply   make the changes
+    python datefromname.py --help                 the organise options
 """
 
 import argparse
@@ -466,48 +454,81 @@ def _unique_name(name, used):
     return name
 
 
-def plan_new_paths(plans, root, add_prefix=False, month_folders=False):
-    """Work out where each file should end up for the two optional tidy-ups.
+# Folders made by "month folders": 2026_08
+MONTH_FOLDER = re.compile(r"^\d{4}_\d{2}$")
 
-    add_prefix: the name becomes "YYYY_MM_DD_####_<original name>", where
+ADD, REMOVE, LEAVE = "add", "remove", "leave"   # date prefix
+INTO, OUT = "into", "out"                       # month folders (or LEAVE)
+
+
+def plan_new_paths(plans, root, prefix=LEAVE, folders=LEAVE):
+    """Work out where each file should end up when organising.
+
+    prefix ADD: the name becomes "YYYY_MM_DD_####_<original name>", where
     #### counts from 0000 for the oldest file of each month in each folder.
-    A prefix we added before is replaced, so running again with nothing new
-    changes nothing.
+    A prefix we added before is replaced, so this also renumbers, and running
+    again with nothing new changes nothing. REMOVE takes our prefix off.
 
-    month_folders: files move into "<root>/YYYY_MM/". Files with the same
-    name from different folders get " (2)" added rather than overwriting.
+    folders INTO: dated files move into "<root>/YYYY_MM/". OUT moves files in
+    a YYYY_MM folder up into the folder above it.
+
+    Files that end up with the same name in the same folder get " (2)" added
+    rather than overwriting. Files with no date (plan.target is None) can
+    still have a prefix removed or be taken out of a month folder.
     """
-    groups = {}
+    groups = {}  # (folder, year, month) or (folder,) -> list of (plan, name)
+    folder_names = {}
     for plan in plans:
         plan.new_path = None
-        if plan.target and (add_prefix or month_folders):
-            if month_folders:
-                folder = os.path.join(root, f"{plan.target:%Y_%m}")
-            else:
-                folder = os.path.dirname(plan.path)
-            key = (os.path.normcase(folder), plan.target.year, plan.target.month)
-            groups.setdefault(key, (folder, []))[1].append(plan)
+        folder = os.path.dirname(plan.path)
+        if folders == INTO and plan.target:
+            folder = os.path.join(root, f"{plan.target:%Y_%m}")
+        elif (folders == OUT and MONTH_FOLDER.match(os.path.basename(folder))
+              and os.path.normcase(folder) != os.path.normcase(root)):
+            folder = os.path.dirname(folder)
+        name = os.path.basename(plan.path)
+        numbered = prefix == ADD and plan.target is not None
+        if numbered or prefix == REMOVE:
+            name = PREFIX.sub("", name)
+        key = (os.path.normcase(folder),)
+        if numbered:
+            key += (plan.target.year, plan.target.month)
+        folder_names.setdefault(key[0], folder)
+        groups.setdefault(key, []).append((plan, name))
 
-    for folder, group in groups.values():
-        def base_name(p):
-            name = os.path.basename(p.path)
-            return PREFIX.sub("", name) if add_prefix else name
-        def already_here(p):
-            return os.path.normcase(os.path.dirname(p.path)) == os.path.normcase(folder)
-        if add_prefix:
-            group.sort(key=lambda p: (p.target, base_name(p).lower()))
+    used = {}  # names taken in each folder, shared by its numbered and plain groups
+    # Plain groups first, so a file that isn't moving keeps its name.
+    for key in sorted(groups, key=len):
+        folder = folder_names[key[0]]
+        taken = used.setdefault(key[0], set())
+        group = groups[key]
+        numbered = len(key) > 1
+        if numbered:
+            group.sort(key=lambda item: (item[0].target, item[1].lower()))
         else:
-            # Without numbers, files already in the folder keep their name and
-            # newcomers with the same name get the " (2)".
-            group.sort(key=lambda p: (not already_here(p), p.target, base_name(p).lower()))
-        used = set()
-        for number, plan in enumerate(group):
-            name = base_name(plan)
-            if add_prefix:
+            # Files already in the folder keep their name; newcomers get " (2)".
+            group.sort(key=lambda item: (os.path.normcase(os.path.dirname(item[0].path)) != key[0],
+                                         item[1].lower()))
+        for number, (plan, name) in enumerate(group):
+            if numbered:
                 name = f"{plan.target:%Y_%m_%d}_{number:04d}_{name}"
-            path = os.path.join(folder, _unique_name(name, used))
+            path = os.path.join(folder, _unique_name(name, taken))
             if os.path.normcase(path) != os.path.normcase(plan.path):
                 plan.new_path = path
+
+
+def plan_organise(folder, prefix=LEAVE, folders=LEAVE, recurse=True, progress=None):
+    """Plans for organising only: names and folders change, dates don't.
+
+    Files without a date are included too, so they can still have a prefix
+    removed or be taken out of a month folder.
+    """
+    plans, skipped = plan_folder(folder, recurse, progress)
+    plans += [Plan(path, None, None) for path in skipped]
+    for plan in plans:
+        plan.write_embedded = plan.set_file_times = False
+    plan_new_paths(plans, folder, prefix, folders)
+    return plans
 
 
 def plan_renumber(folder, recurse=True):
@@ -640,10 +661,17 @@ def main(argv=None):
                         help="add YYYY_MM_DD_####_ to the start of each file name")
     parser.add_argument("--month-folders", action="store_true",
                         help="move files into YYYY_MM folders inside the folder")
+    parser.add_argument("--remove-prefix", action="store_true", help="take YYYY_MM_DD_####_ off file names")
+    parser.add_argument("--out-of-month-folders", action="store_true",
+                        help="move files out of YYYY_MM folders into the folder above")
     args = parser.parse_args(argv)
 
     plans, skipped = plan_folder(args.folder, recurse=not args.no_recurse)
-    plan_new_paths(plans, args.folder, args.rename, args.month_folders)
+    if args.remove_prefix or args.out_of_month_folders:
+        plans += [Plan(path, None, None) for path in skipped]
+    prefix = ADD if args.rename else REMOVE if args.remove_prefix else LEAVE
+    folders = INTO if args.month_folders else OUT if args.out_of_month_folders else LEAVE
+    plan_new_paths(plans, args.folder, prefix, folders)
     changes = [p for p in plans if p.needs_change]
     for p in changes:
         rename = f"  -> {os.path.relpath(p.new_path, args.folder)}" if p.new_path else ""

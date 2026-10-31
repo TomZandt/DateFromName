@@ -253,90 +253,121 @@ class FixTab(Tab):
     title = "Fix dates"
     intro = ("Some photos show the day they were downloaded instead of the day they were taken. "
              "This puts the right date back, using the date in each file's name. "
-             "The pictures themselves are not changed.")
+             "The pictures and their names are not changed.")
     go_text = "2.  Fix"
     done_verb = "updated"
-    columns = (("name", "Photo or video", 215), ("now", "Date inside file now", 140),
-               ("new", "New date", 140), ("new_name", "New name", 330), ("why", "What will happen", 135))
-
-    def build_options(self):
-        options = ttk.Frame(self.frame)
-        options.pack(anchor="w", pady=(12, 0))
-        ttk.Label(options, text="Also:", font=FONT).grid(row=0, column=0, sticky="nw", padx=(0, 10))
-        self.add_prefix = tk.BooleanVar(value=False)
-        self.month_folders = tk.BooleanVar(value=False)
-        boxes = [
-            ttk.Checkbutton(options, variable=self.add_prefix, command=self.show_plan,
-                            style="Prefix.TCheckbutton",
-                            text="Add the date to the start of each file name"),
-            ttk.Checkbutton(options, variable=self.month_folders, command=self.show_plan,
-                            style="Folder.TCheckbutton",
-                            text="Put the photos into a folder for each month"),
-        ]
-        examples = [
-            [("e.g.  ", None), ("2026_08_22_0000_", "prefix"), ("IMG-20260822-WA0002.jpeg", None)],
-            [("e.g.  ", None), ("2026_08\\", "folder"), ("IMG-20260822-WA0002.jpeg", None)],
-        ]
-        for row, (box, example) in enumerate(zip(boxes, examples)):
-            box.grid(row=row, column=1, sticky="w", pady=2)
-            text = tk.Text(options, height=1, width=48, font=FONT, relief="flat", cursor="arrow",
-                           background=ttk.Style().lookup("TFrame", "background"), highlightthickness=0)
-            text.tag_configure("prefix", foreground=PREFIX_COLOUR, font=(FONT[0], FONT[1], "bold"))
-            text.tag_configure("folder", foreground=FOLDER_COLOUR, font=(FONT[0], FONT[1], "bold"))
-            for piece, tag in example:
-                text.insert("end", piece, tag or ())
-            text.configure(state="disabled")
-            text.grid(row=row, column=2, sticky="w", padx=(16, 0))
-        return boxes
+    columns = (("name", "Photo or video", 390), ("now", "Date inside file now", 170),
+               ("new", "New date", 170), ("why", "What will happen", 230))
 
     def scan(self):
         plans, self.skipped = core.plan_folder(self.folder, progress=self.show_progress)
         return plans
 
     def show_plan(self):
-        """Show what will happen. Runs again whenever an option is ticked."""
-        if self.plans is None:
-            return
         plans, skipped = self.plans, self.skipped
-        core.plan_new_paths(plans, self.folder, self.add_prefix.get(), self.month_folders.get())
         changes = [p for p in plans if p.needs_change]
         self.show_rows([
             (self.relative(p.path),
              p.embedded.strftime(DATE_FORMAT) if p.embedded else "(none)",
              p.target.strftime(DATE_FORMAT),
-             self.coloured_new_name(p.new_path, self.month_folders.get(), self.add_prefix.get())
-             if p.new_path else "",
-             p.status if p.fixes_date else "Date already right")
+             p.status)
             for p in changes])
-        self.set_changes(changes, f"2.  Fix {len(changes)} files")
+        self.set_changes(changes, f"2.  Fix {len(changes)} dates")
 
         total = len(plans) + len(skipped)
         if total == 0:
             self.say("There are no photos or videos in that folder. Try choosing a different one.")
             return
-        date_fixes = sum(1 for p in plans if p.fixes_date)
-        moves = sum(1 for p in plans if p.new_path)
         lines = [f"Found {total} photos and videos."]
-        if len(plans) > date_fixes:
-            lines.append(f"✔  {len(plans) - date_fixes} already have the right date.")
-        if date_fixes:
-            lines.append(f"✎  {date_fixes} will have their date fixed.")
-        if moves:
-            if self.add_prefix.get() and self.month_folders.get():
-                what = "renamed and put into month folders"
-            elif self.month_folders.get():
-                what = "put into month folders"
-            else:
-                what = "renamed"
-            lines.append(f"→  {moves} will be {what}.")
+        if len(plans) > len(changes):
+            lines.append(f"✔  {len(plans) - len(changes)} already have the right date.")
+        if changes:
+            lines.append(f"✎  {len(changes)} will have their date fixed.")
         if skipped:
             lines.append(f"–  {len(skipped)} have no date in their name or inside the file "
                          "and will be left alone.")
         if changes:
             lines.append("Check the list below, then click “Fix” at the bottom.")
         else:
-            lines.append("Nothing needs changing.")
+            lines.append("Nothing needs fixing.")
         self.say("\n".join(lines))
+
+
+class OrganiseTab(Tab):
+    title = "Organise"
+    intro = ("Add the date to the start of each file name so they sort in date order, and/or put the "
+             "photos into a folder for each month. Both can be undone here too. "
+             "The dates themselves are not changed (use “Fix dates” for that).")
+    go_text = "2.  Organise"
+    done_verb = "organised"
+    columns = (("name", "Photo or video", 420), ("new_name", "New name", 540))
+
+    def build_options(self):
+        options = ttk.Frame(self.frame)
+        options.pack(anchor="w", pady=(12, 0))
+        self.prefix = tk.StringVar(value=core.LEAVE)
+        self.folders = tk.StringVar(value=core.LEAVE)
+        rows = [
+            ("Date at the start of the name:", self.prefix, [
+                (core.LEAVE, "Leave as it is", "TRadiobutton"),
+                (core.ADD, "Add it (and renumber)", "Prefix.TRadiobutton"),
+                (core.REMOVE, "Remove it", "TRadiobutton")],
+             [("e.g.  ", None), ("2026_08_22_0000_", "prefix"), ("IMG-20260822-WA0002.jpeg", None)]),
+            ("Month folders:", self.folders, [
+                (core.LEAVE, "Leave as they are", "TRadiobutton"),
+                (core.INTO, "Put photos into month folders", "Folder.TRadiobutton"),
+                (core.OUT, "Take photos out of month folders", "TRadiobutton")],
+             [("e.g.  ", None), ("2026_08\\", "folder"), ("IMG-20260822-WA0002.jpeg", None)]),
+        ]
+        buttons = []
+        for row, (label, variable, choices, example) in enumerate(rows):
+            ttk.Label(options, text=label, font=(FONT[0], FONT[1], "bold")).grid(
+                row=row * 2, column=0, sticky="w", pady=(6, 0), padx=(0, 12))
+            for col, (value, text, style) in enumerate(choices, 1):
+                button = ttk.Radiobutton(options, text=text, value=value, variable=variable,
+                                         style=style, command=self.show_plan)
+                button.grid(row=row * 2, column=col, sticky="w", pady=(6, 0), padx=(0, 18))
+                buttons.append(button)
+            self.example_text(options, example).grid(row=row * 2 + 1, column=2, columnspan=3, sticky="w")
+        return buttons
+
+    def example_text(self, parent, pieces):
+        text = tk.Text(parent, height=1, width=48, font=FONT, relief="flat", cursor="arrow",
+                       background=ttk.Style().lookup("TFrame", "background"), highlightthickness=0)
+        text.tag_configure("prefix", foreground=PREFIX_COLOUR, font=(FONT[0], FONT[1], "bold"))
+        text.tag_configure("folder", foreground=FOLDER_COLOUR, font=(FONT[0], FONT[1], "bold"))
+        for piece, tag in pieces:
+            text.insert("end", piece, tag or ())
+        text.configure(state="disabled")
+        return text
+
+    def scan(self):
+        return core.plan_organise(self.folder, progress=self.show_progress)
+
+    def show_plan(self):
+        """Show what will happen. Runs again whenever a choice is changed."""
+        if self.plans is None:
+            return
+        prefix, folders = self.prefix.get(), self.folders.get()
+        core.plan_new_paths(self.plans, self.folder, prefix, folders)
+        changes = [p for p in self.plans if p.needs_change]
+        self.show_rows([(self.relative(p.path),
+                         self.coloured_new_name(p.new_path, folders == core.INTO, prefix == core.ADD))
+                        for p in changes])
+        self.set_changes(changes, f"2.  Organise {len(changes)} files")
+
+        if not self.plans:
+            self.say("There are no photos or videos in that folder. Try choosing a different one.")
+        elif prefix == core.LEAVE and folders == core.LEAVE:
+            self.say(f"Found {len(self.plans)} photos and videos.\n"
+                     "Choose what you'd like to do above.")
+        elif not changes:
+            self.say(f"Found {len(self.plans)} photos and videos.\n"
+                     "They're already organised that way. Nothing needs changing.")
+        else:
+            self.say(f"Found {len(self.plans)} photos and videos.\n"
+                     f"→  {len(changes)} will be renamed or moved (listed below).\n"
+                     "Check the list below, then click “Organise” at the bottom.")
 
 
 class RenumberTab(Tab):
@@ -361,8 +392,8 @@ class RenumberTab(Tab):
         self.set_changes(changes, f"2.  Renumber {len(changes)} files")
         if not plans:
             self.say("None of the photos in this folder have numbers at the start of their name yet.\n"
-                     "To add them, use the “Fix dates” tab and tick "
-                     "“Add the date to the start of each file name”.")
+                     "To add them, use the “Organise” tab and choose "
+                     "“Add it (and renumber)”.")
         elif not changes:
             self.say(f"All {len(plans)} numbered photos and videos are already in order, "
                      "with no gaps. Nothing needs changing.")
@@ -388,8 +419,9 @@ class App:
         style.configure("Update.TFrame", background="#fff4c2")
         style.configure("Update.TLabel", background="#fff4c2", font=FONT)
         style.configure("TCheckbutton", font=FONT)
-        style.configure("Prefix.TCheckbutton", font=(FONT[0], FONT[1], "bold"), foreground=PREFIX_COLOUR)
-        style.configure("Folder.TCheckbutton", font=(FONT[0], FONT[1], "bold"), foreground=FOLDER_COLOUR)
+        style.configure("TRadiobutton", font=FONT)
+        style.configure("Prefix.TRadiobutton", font=(FONT[0], FONT[1], "bold"), foreground=PREFIX_COLOUR)
+        style.configure("Folder.TRadiobutton", font=(FONT[0], FONT[1], "bold"), foreground=FOLDER_COLOUR)
 
         self.update_bar = ttk.Frame(root, style="Update.TFrame", padding=(20, 10))
         self.update_text = ttk.Label(self.update_bar, style="Update.TLabel")
@@ -404,6 +436,7 @@ class App:
         notebook = ttk.Notebook(self.main_frame)
         notebook.pack(fill="both", expand=True)
         self.fix_tab = FixTab(self, notebook)
+        self.organise_tab = OrganiseTab(self, notebook)
         self.renumber_tab = RenumberTab(self, notebook)
 
         self.save_log = tk.BooleanVar(value=False)
