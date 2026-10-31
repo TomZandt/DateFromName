@@ -135,7 +135,8 @@ without a number are left alone. It doesn't read the photos, so it's quick.
 | -------- | --- |
 | This README | Using the app: installing, the three tabs and their rules |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each version |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developers: how it works inside, running from source, building, releasing, developer-only limitations |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developers: how it works inside, running from source, tests, building, releasing, developer-only limitations |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Developers: commit messages (Conventional Commits) and version numbers (Semantic Versioning) |
 | [LICENSE](LICENSE) | The licence |
 
 ## Licence

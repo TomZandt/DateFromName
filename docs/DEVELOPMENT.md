@@ -31,8 +31,10 @@ of the design:
 | [app.py](../app.py) | The tkinter window, the entry point for the `.exe`. It's a thin layer over `datefromname`. `Tab` holds the shared two-step layout (choose, preview, go, done). `FixTab`, `OrganiseTab` and `RenumberTab` fill in `scan()` and `show_plan()`, and `OrganiseTab` adds `build_options()`. Another job would be another `Tab` subclass. The preview list is a `ColourTable` (a read-only `tk.Text` lined up with tab stops), because `ttk.Treeview` can only colour whole rows. In the "New name" column, the month folder is green (`FOLDER_COLOUR`) and the date prefix is blue (`PREFIX_COLOUR`), matching the Organise choices. |
 | [updater.py](../updater.py) | Checks GitHub Releases and swaps in the new `.exe`. |
 | [_version.py](../_version.py) | `VERSION = "dev"` in the repo. The release workflow overwrites it with the tag. |
-| [tests/test_datefromname.py](../tests/test_datefromname.py) | Unit tests. These build real JPEG and MP4 files in a temp folder. |
+| [tests/](../tests/) | The test suite. See [Tests](#tests). |
+| [.github/workflows/test.yml](../.github/workflows/test.yml) | Runs the tests on every push to `main` and every pull request. |
 | [.github/workflows/release.yml](../.github/workflows/release.yml) | On a `v*` tag, it tests, builds and publishes the release. |
+| [.githooks/commit-msg](../.githooks/commit-msg) | Rejects commit messages that aren't Conventional Commits. See [CONTRIBUTING.md](../CONTRIBUTING.md). |
 | `requirements.txt` / `requirements-dev.txt` | `piexif` is the only thing bundled into the exe. Pillow, pillow-heif (to make test images) and a pinned PyInstaller are for development and building. |
 | [CHANGELOG.md](../CHANGELOG.md) | What changed in each release. Update it before tagging. |
 | [LICENSE](../LICENSE) | MIT. |
@@ -257,13 +259,19 @@ with `REPO` pointing at the new one.
 
 ## Releasing
 
-1. Add the changes to [CHANGELOG.md](../CHANGELOG.md) under the new version
-   and commit.
-2. Tag and push:
+Version numbers follow Semantic Versioning. How to pick the next number, and
+how it follows from the commit types, is in
+[CONTRIBUTING.md](../CONTRIBUTING.md#versions-semantic-versioning).
+
+1. Work out the next version from the commits since the last tag:
+   `git log --oneline $(git describe --tags --abbrev=0)..HEAD`
+2. In [CHANGELOG.md](../CHANGELOG.md), rename "Unreleased" to the new
+   version and date. Commit with `docs(release): vX.Y.Z`.
+3. Tag and push:
 
 ```
-git tag v1.3.0
-git push origin v1.3.0
+git tag vX.Y.Z
+git push origin main vX.Y.Z
 ```
 
 The workflow runs on `windows-latest` (about 1 minute):
@@ -275,7 +283,7 @@ The workflow runs on `windows-latest` (about 1 minute):
 4. Runs `gh release create` with the exe attached and auto-generated notes.
 
 Each new tag must be numerically higher than the last, or installed copies
-won't offer it.
+won't offer it (see [Self-update](#self-update)).
 
 Give users the download link in the README. It always points at the newest
 release.
@@ -284,6 +292,7 @@ release.
 
 ```
 pip install -r requirements.txt -r requirements-dev.txt
+git config core.hooksPath .githooks              # check commit messages
 python -m unittest discover -s tests -v
 python app.py                                  # the window
 python datefromname.py "D:\Photos"             # preview on the command line
@@ -307,6 +316,26 @@ place, and date fixes can't be undone.
 To try the window without your own photos, make test files with the helpers in
 the tests (`make_jpeg`, `make_mp4`), e.g. a few `IMG-YYYYMMDD-WAnnnn.jpeg`
 files with no EXIF and a `PXL_` file with EXIF.
+
+## Tests
+
+```
+python -m unittest discover -s tests -v
+```
+
+They run in a couple of seconds, on every push (`test.yml`) and before every
+release. Every test works on generated files in a temporary folder and never
+touches real photos or the network.
+
+| File | Covers |
+| ---- | ------ |
+| `test_datefromname.py` | Reading names (every format in the README table, and names that shouldn't count), reading and writing dates in JPEG, MP4 (32- and 64-bit headers) and HEIC, the Fix dates rules, Organise (add, remove, into, out, running twice, choosing a month folder, duplicate names), Renumber, and what happens when things go wrong: clashes, failed renames rolling back, damaged and read-only files. Also the log and the command line. `make_jpeg()` and `make_mp4()` build test files. |
+| `test_updater.py` | Version comparison, when an update is offered, and the exe swap and rollback, with GitHub and the exe faked. |
+| `test_app.py` | Smoke tests for the window: each tab is driven like a user would (choose folder, check the message and preview, click the button) with the folder picker faked and the window hidden. Also the log tick box, problems being listed and the update bar. Skipped if there's no display. |
+
+Not covered: real files from real phones (all test files are generated), and
+the built `.exe` itself. Before a release, open the sample folder in the
+built exe once (see [Working locally](#working-locally)).
 
 ## Common changes
 
