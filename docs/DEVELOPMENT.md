@@ -61,7 +61,7 @@ Each pattern has a *kind*:
 Years outside 1990 to next year, and impossible dates or times, are rejected,
 so random digit runs don't count as dates.
 
-Dedicated cameras (`DSC_1234.JPG`, GoPro `GX010123.MP4`, iPhone `IMG_1234.JPG`)
+iPhones (`IMG_1234.HEIC/.JPG/.MOV`) and dedicated cameras (`DSC_1234.JPG`, GoPro `GX010123.MP4`)
 have **no date in the name**. `parse_name()` returns `None` for them, and they
 are only processed if a date can be read from inside the file. In that case the
 date inside is kept and only the Windows dates are lined up with it. A file with
@@ -73,7 +73,13 @@ neither goes to the skipped list.
   via piexif. These are local time with no zone.
 - **MP4/MOV/M4V/3GP:** the `mvhd` creation time, in UTC seconds since 1904. It
   is converted to local time. A value of 0 counts as "no date".
-- **Anything else** (PNG, HEIC and so on) counts as having no date inside. Only
+- **HEIC/HEIF (iPhone):** the EXIF date is **read only**. HEIC uses the same
+  box layout as MP4. `read_heic_date()` finds the item of type `Exif` in
+  `meta/iinf`, looks up its bytes in `meta/iloc`, skips the 4-byte offset
+  prefix and hands the TIFF data to piexif. We never write HEIC, so if a HEIC
+  date is wrong only the Windows dates change. Tested with real HEIC files made
+  by `pillow-heif` (a dev-only dependency; the test is skipped without it).
+- **Anything else** (PNG, RAW and so on) counts as having no date inside. Only
   the Windows file dates are changed.
 
 ### 2. Decide (`_decide`)
@@ -224,7 +230,7 @@ Add the name to `ParseNameTests.test_patterns` and run the tests. If it fails,
 add a `(regex, kind)` entry to `PATTERNS` with named groups, above any broader
 pattern it would otherwise lose to. Then mention it in the README table.
 
-**Supporting another file type's internal date** (e.g. HEIC or PNG). Add a
+**Supporting another file type's internal date** (e.g. PNG or RAW). Add a
 reader and a writer, branch on the extension in `read_embedded_date()` and
 `apply_plan()`, and add the extension to `write_embedded` in `_decide()`. Until
 then these types only get their Windows dates fixed.
@@ -247,9 +253,10 @@ overwriting correct dates that were recorded in another time zone.
 - **The pattern for names that are just a timestamp** (`^\d{10}`) would also
   treat any other 10- or 13-digit name as a date, as long as it falls in a
   plausible year.
-- **HEIC and RAW dates inside the file aren't read.** An iPhone `IMG_1234.HEIC`
-  has no date in its name, so it's skipped. Windows reads its "Date taken"
-  directly, so it usually doesn't need fixing.
+- **RAW dates inside the file aren't read** (`.CR2`, `.NEF` and so on). A RAW
+  file with no date in its name is skipped.
+- **iPhone screenshots** (`IMG_1234.PNG`) have no date in the name or inside
+  the file, so they're skipped.
 - **Only JPEG and MP4-family files get a date inside the file.** For other
   types, only the Windows created and modified dates change, which some apps
   ignore.

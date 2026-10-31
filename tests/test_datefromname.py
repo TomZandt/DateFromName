@@ -187,6 +187,23 @@ class FolderTests(unittest.TestCase):
             self.assertFalse(plans[name].write_embedded)
             self.assertEqual(self.modified(name), taken)
 
+    def test_iphone_heic_uses_date_inside_file(self):
+        try:
+            import pillow_heif
+        except ImportError:
+            self.skipTest("pillow-heif not installed")
+        pillow_heif.register_heif_opener()
+        taken = datetime(2026, 8, 22, 15, 4, 5)
+        stamp = taken.strftime(core.EXIF_FORMAT).encode()
+        Image.new("RGB", (64, 64), "blue").save(
+            self.path("IMG_1234.HEIC"), format="HEIF",
+            exif=piexif.dump({"Exif": {piexif.ExifIFD.DateTimeOriginal: stamp}}))
+        core.set_file_times(self.path("IMG_1234.HEIC"), DOWNLOADED)
+        plans, skipped = self.run_fix()
+        self.assertEqual(skipped, [])
+        self.assertFalse(plans["IMG_1234.HEIC"].write_embedded)
+        self.assertEqual(self.modified("IMG_1234.HEIC"), taken)
+
     def test_created_date_is_set(self):
         make_jpeg(self.path("IMG-20260822-WA0002.jpeg"))
         self.run_fix()

@@ -32,7 +32,8 @@ When a new version is out, a yellow bar appears at the top of the app. Click
 | Telegram, Signal | `photo_2026-08-22_12-34-56.jpg`, `photo_1@22-08-2026_12-34-56.jpg`, `signal-2026-08-22-123456.jpg` | Date and time |
 | Dropbox, dash cams | `2026-08-22 12.34.56.jpg`, `2026_0822_123456_001.MP4` | Date and time |
 | Facebook/Messenger, iPhone screen recordings | `FB_IMG_1787398496123.jpg`, `RPReplay_Final1787398496.MP4` | The timestamp in the name |
-| Cameras, GoPro, iPhone | `DSC_1234.JPG`, `GX010123.MP4`, `IMG_1234.JPG` | No date in the name, so the date inside the file is used to fix the Windows dates |
+| iPhone | `IMG_1234.HEIC`, `IMG_1234.JPG`, `IMG_1234.MOV` | No date in the name, so the date inside the file is used to fix the Windows dates |
+| Cameras, GoPro | `DSC_1234.JPG`, `P1010123.JPG`, `GX010123.MP4` | Same: the date inside the file |
 | Anything else with a date | `holiday 2026-08-22.jpg` | The date at midday |
 
 For each file:

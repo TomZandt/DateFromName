@@ -34,8 +34,9 @@ import piexif
 
 JPEG_EXTS = {".jpg", ".jpeg", ".jfif"}
 MP4_EXTS = {".mp4", ".mov", ".m4v", ".3gp", ".3g2"}
-MEDIA_EXTS = JPEG_EXTS | MP4_EXTS | {
-    ".png", ".gif", ".webp", ".heic", ".heif", ".bmp", ".tif", ".tiff",
+HEIC_EXTS = {".heic", ".heif"}  # date is read, never written
+MEDIA_EXTS = JPEG_EXTS | MP4_EXTS | HEIC_EXTS | {
+    ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff",
     ".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2", ".raf",
     ".avi", ".mkv", ".mts", ".m2ts", ".wmv", ".mpg", ".mpeg", ".webm",
     ".opus", ".m4a", ".mp3", ".aac", ".wav",
@@ -145,6 +146,10 @@ def read_jpeg_date(path):
         exif = piexif.load(path)
     except Exception:
         return None
+    return _exif_date(exif)
+
+
+def _exif_date(exif):
     for tag in (piexif.ExifIFD.DateTimeOriginal, piexif.ExifIFD.DateTimeDigitized):
         raw = exif.get("Exif", {}).get(tag)
         if raw:
@@ -226,6 +231,81 @@ def write_mp4_date(path, when):
             f.write(seconds.to_bytes(width, "big") * 2)  # creation and modification
 
 
+# --- HEIC (iPhone) -----------------------------------------------------------
+# HEIC uses the same box layout as MP4. The EXIF block is an item listed in
+# meta/iinf, and meta/iloc says where its bytes are. We only read it: iPhone
+# photos keep their date, so they just need the Windows dates lining up.
+
+def _full_box(f, payload):
+    f.seek(payload)
+    return f.read(1)[0], payload + 4  # version, start of contents
+
+
+def _read_uint(f, size):
+    return int.from_bytes(f.read(size), "big") if size else 0
+
+
+def _heic_exif_item(f, start, end):
+    """Return the item ID of the EXIF block listed in iinf."""
+    version, pos = _full_box(f, start)
+    count_size = 2 if version == 0 else 4
+    for kind, payload, _ in _boxes(f, pos + count_size, end):
+        if kind != b"infe":
+            continue
+        version, pos = _full_box(f, payload)
+        if version < 2:
+            continue
+        f.seek(pos)
+        item_id = _read_uint(f, 2 if version == 2 else 4)
+        f.read(2)  # protection index
+        if f.read(4) == b"Exif":
+            return item_id
+    return None
+
+
+def _heic_item_location(f, start, item):
+    """Return (offset, length) of an item's first extent from iloc."""
+    version, pos = _full_box(f, start)
+    f.seek(pos)
+    sizes = f.read(2)
+    offset_size, length_size = sizes[0] >> 4, sizes[0] & 15
+    base_size, index_size = sizes[1] >> 4, (sizes[1] & 15 if version else 0)
+    for _ in range(_read_uint(f, 2 if version < 2 else 4)):
+        item_id = _read_uint(f, 2 if version < 2 else 4)
+        if version:
+            f.read(2)  # construction method
+        f.read(2)      # data reference index
+        base = _read_uint(f, base_size)
+        extents = [(_read_uint(f, index_size), _read_uint(f, offset_size), _read_uint(f, length_size))
+                   for _ in range(_read_uint(f, 2))]
+        if item_id == item and extents:
+            return base + extents[0][1], extents[0][2]
+    return None
+
+
+def read_heic_date(path):
+    try:
+        with open(path, "rb") as f:
+            end = f.seek(0, os.SEEK_END)
+            for kind, payload, box_end in list(_boxes(f, 0, end)):
+                if kind != b"meta":
+                    continue
+                children = {k: (p, e) for k, p, e in _boxes(f, payload + 4, box_end)}
+                if b"iinf" not in children or b"iloc" not in children:
+                    return None
+                item = _heic_exif_item(f, *children[b"iinf"])
+                location = item is not None and _heic_item_location(f, children[b"iloc"][0], item)
+                if not location:
+                    return None
+                f.seek(location[0])
+                data = f.read(location[1])
+                tiff = data[4 + int.from_bytes(data[:4], "big"):]
+                return _exif_date(piexif.load(tiff))
+    except Exception:
+        pass
+    return None
+
+
 # --- Windows file times ----------------------------------------------------
 
 def get_file_times(path):
@@ -264,6 +344,8 @@ def read_embedded_date(path):
         return read_jpeg_date(path)
     if ext in MP4_EXTS:
         return read_mp4_date(path)
+    if ext in HEIC_EXTS:
+        return read_heic_date(path)
     return None
 
 
